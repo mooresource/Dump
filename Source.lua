@@ -1,4 +1,3 @@
--- Volleyball legends
 -- Section 1: Services
 local Services = {
     Players = game:GetService("Players"),
@@ -66,6 +65,9 @@ function UIManager:Notify(title, content, icon)
     end
 end
 
+if not UIManager:LoadRayfield() then return end
+UIManager:CreateWindow()
+
 -- Section 3: Hitbox Module
 local HitboxModule = {
     Enabled = true,
@@ -75,9 +77,7 @@ local HitboxModule = {
 
 function HitboxModule:FindAnyPart(model)
     for _, part in ipairs(model:GetDescendants()) do
-        if part:IsA("BasePart") then
-            return part
-        end
+        if part:IsA("BasePart") then return part end
     end
     return nil
 end
@@ -116,9 +116,7 @@ end
 
 function HitboxModule:ClearAllHitboxes()
     for _, hitbox in pairs(self.TrackedBalls) do
-        if hitbox and hitbox.Parent then
-            hitbox:Destroy()
-        end
+        if hitbox and hitbox.Parent then hitbox:Destroy() end
     end
     self.TrackedBalls = {}
 end
@@ -169,9 +167,7 @@ function HitboxModule:Initialize(tab)
         Flag = "HitboxSize",
         Callback = function(val)
             self.CurrentScale = val
-            if self.Enabled then
-                self:UpdateAllHitboxes(val)
-            end
+            if self.Enabled then self:UpdateAllHitboxes(val) end
         end
     })
     
@@ -215,14 +211,10 @@ function CharacterModule:SetupCharacter(character)
     self.HRP = character:WaitForChild("HumanoidRootPart")
     
     self.Humanoid.StateChanged:Connect(function(_, state)
-        if state == Enum.HumanoidStateType.Landed then
-            self.Humanoid.AutoRotate = true
-        end
+        if state == Enum.HumanoidStateType.Landed then self.Humanoid.AutoRotate = true end
     end)
     
-    if self.CloneESP.Enabled then
-        self:CreateCloneESP(character)
-    end
+    if self.CloneESP.Enabled then self:CreateCloneESP(character) end
 end
 
 function CharacterModule:SetupCharacterListeners()
@@ -316,9 +308,7 @@ function CharacterModule:CreateCloneESP(character)
             clone.Color = self.CloneESP.Color
             
             for _, child in ipairs(clone:GetChildren()) do
-                if child:IsA("Script") or child:IsA("Motor6D") then
-                    child:Destroy()
-                end
+                if child:IsA("Script") or child:IsA("Motor6D") then child:Destroy() end
             end
             
             self.CloneESP.Clones[part] = clone
@@ -371,9 +361,7 @@ function CharacterModule:Initialize(tab)
         Flag = "DirectionalJump",
         Callback = function(val)
             self.DirectionalJump = val
-            if not val and self.Humanoid then
-                self.Humanoid.AutoRotate = true
-            end
+            if not val and self.Humanoid then self.Humanoid.AutoRotate = true end
         end
     })
     
@@ -386,9 +374,7 @@ function CharacterModule:Initialize(tab)
         Name = "Air Movement",
         CurrentValue = self.AirMovement,
         Flag = "AirMoveToggle",
-        Callback = function(val)
-            self.AirMovement = val
-        end
+        Callback = function(val) self.AirMovement = val end
     })
     
     tab:CreateSlider({
@@ -398,9 +384,7 @@ function CharacterModule:Initialize(tab)
         Suffix = "studs/s",
         CurrentValue = self.AirMoveSpeed,
         Flag = "AirMoveSpeed",
-        Callback = function(val)
-            self.AirMoveSpeed = val
-        end
+        Callback = function(val) self.AirMoveSpeed = val end
     })
     
     tab:CreateSection("Visual")
@@ -412,9 +396,7 @@ function CharacterModule:Initialize(tab)
         Callback = function(val)
             self.CloneESP.Enabled = val
             if val then
-                if LocalPlayer.Character then
-                    self:CreateCloneESP(LocalPlayer.Character)
-                end
+                if LocalPlayer.Character then self:CreateCloneESP(LocalPlayer.Character) end
             else
                 self:CloneESPCleanup()
             end
@@ -428,17 +410,13 @@ function CharacterModule:Initialize(tab)
         Callback = function(color)
             self.CloneESP.Color = color
             for _, clone in pairs(self.CloneESP.Clones) do
-                if clone and clone:IsA("BasePart") then
-                    clone.Color = color
-                end
+                if clone and clone:IsA("BasePart") then clone.Color = color end
             end
         end
     })
     
     self:SetupCharacterListeners()
-    if LocalPlayer.Character then
-        self:SetupCharacter(LocalPlayer.Character)
-    end
+    if LocalPlayer.Character then self:SetupCharacter(LocalPlayer.Character) end
 end
 
 -- Section 5: Visual Helpers
@@ -529,9 +507,7 @@ function VisualHelpers:ApplyTilt()
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if humanoid and humanoid:GetState() == Enum.HumanoidStateType.Freefall then
         local dir = Vector3.new(Camera.CFrame.LookVector.X, 0, Camera.CFrame.LookVector.Z)
-        if dir.Magnitude > 0 then
-            humanoid:Move(dir.Unit, false)
-        end
+        if dir.Magnitude > 0 then humanoid:Move(dir.Unit, false) end
     end
 end
 
@@ -583,10 +559,7 @@ function VisualHelpers:SetupPlayerJumpESP(player)
         end)
     end
     
-    if player.Character then
-        MonitorCharacter(player.Character)
-    end
-    
+    if player.Character then MonitorCharacter(player.Character) end
     player.CharacterAdded:Connect(MonitorCharacter)
 end
 
@@ -602,16 +575,12 @@ function VisualHelpers:SetupListeners()
             
             for i = 1, math.min(#enemies, self.MaxLines) do
                 local player = enemies[i]
-                if not self.Beams[player] then
-                    self:CreateBeamForPlayer(player, i)
-                end
+                if not self.Beams[player] then self:CreateBeamForPlayer(player, i) end
                 self:UpdateLinePosition(player)
             end
             
             for player in pairs(self.Beams) do
-                if not table.find(enemies, player) then
-                    self:ClearLine(player)
-                end
+                if not table.find(enemies, player) then self:ClearLine(player) end
             end
         end
         
@@ -625,14 +594,13 @@ function VisualHelpers:SetupListeners()
     
     Services.UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if gameProcessed then return end
-        if input.KeyCode == self.TiltHotkey then
-            self.AutoTiltEnabled = not self.AutoTiltEnabled
-        end
+        if input.KeyCode == self.TiltHotkey then self.AutoTiltEnabled = not self.AutoTiltEnabled end
     end)
     
     for _, player in ipairs(Services.Players:GetPlayers()) do
         self:SetupPlayerJumpESP(player)
     end
+    
     Services.Players.PlayerAdded:Connect(function(player)
         self:SetupPlayerJumpESP(player)
     end)
@@ -647,9 +615,7 @@ function VisualHelpers:Initialize(tab)
         Callback = function(val)
             self.LinesEnabled = val
             if not val then
-                for player, data in pairs(self.Beams) do
-                    self:ClearLine(player)
-                end
+                for player, data in pairs(self.Beams) do self:ClearLine(player) end
             end
         end
     })
@@ -660,9 +626,7 @@ function VisualHelpers:Initialize(tab)
         Increment = 10,
         CurrentValue = self.LineDistance,
         Suffix = " studs",
-        Callback = function(val)
-            self.LineDistance = val
-        end
+        Callback = function(val) self.LineDistance = val end
     })
     
     tab:CreateSection("Auto Tilt")
@@ -670,9 +634,7 @@ function VisualHelpers:Initialize(tab)
     tab:CreateToggle({
         Name = "Auto Tilt",
         CurrentValue = self.AutoTiltEnabled,
-        Callback = function(val)
-            self.AutoTiltEnabled = val
-        end
+        Callback = function(val) self.AutoTiltEnabled = val end
     })
     
     tab:CreateInput({
@@ -684,9 +646,7 @@ function VisualHelpers:Initialize(tab)
         Callback = function(text)
             text = text:upper()
             local key = Enum.KeyCode[text]
-            if key then
-                self.TiltHotkey = key
-            end
+            if key then self.TiltHotkey = key end
         end
     })
     
@@ -703,9 +663,7 @@ function VisualHelpers:Initialize(tab)
         Callback = function(val)
             self.JumpESPEnabled = val
             if not val then
-                for player in pairs(self.JumpHighlights) do
-                    self:RemoveJumpESP(player)
-                end
+                for player in pairs(self.JumpHighlights) do self:RemoveJumpESP(player) end
             end
         end
     })
@@ -721,28 +679,16 @@ Services.CoreGui.ChildAdded:Connect(function(child)
     end
 end)
 
-if not UIManager:LoadRayfield() then
-    return
-end
-
-UIManager:CreateWindow()
-
 local GameTab = UIManager.Window:CreateTab("Game", "flame")
 local CharTab = UIManager.Window:CreateTab("Character", "user-round")
 local VisualTab = UIManager.Window:CreateTab("Visual Helpers", "eye")
-local AimTab = UIManager.Window:CreateTab("Aim Assist", "crosshair")
 
 HitboxModule:Initialize(GameTab)
 CharacterModule:Initialize(CharTab)
 VisualHelpers:Initialize(VisualTab)
-AimAssist:Initialize(AimTab)
 
 Services.UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
-    
-    if input.KeyCode == Enum.KeyCode.F then
-        AimAssist:Toggle()
-    end
     
     if input.KeyCode == Enum.KeyCode.P then
         HitboxModule.Enabled = false
@@ -753,18 +699,11 @@ Services.UserInputService.InputBegan:Connect(function(input, gameProcessed)
         CharacterModule:CloneESPCleanup()
         
         VisualHelpers.LinesEnabled = false
-        for player in pairs(VisualHelpers.Beams) do
-            VisualHelpers:ClearLine(player)
-        end
+        for player in pairs(VisualHelpers.Beams) do VisualHelpers:ClearLine(player) end
         
         VisualHelpers.AutoTiltEnabled = false
         VisualHelpers.JumpESPEnabled = false
-        for player in pairs(VisualHelpers.JumpHighlights) do
-            VisualHelpers:RemoveJumpESP(player)
-        end
-        
-        AimAssist.Enabled = false
-        AimAssist:CleanupVisuals()
+        for player in pairs(VisualHelpers.JumpHighlights) do VisualHelpers:RemoveJumpESP(player) end
         
         UIManager:Notify("PANIC MODE", "All features disabled", "skull")
     end
@@ -772,7 +711,7 @@ end)
 
 UIManager:Notify(
     "ZeckHub v2.1 Loaded",
-    "Press " .. tostring(CONFIG.UIKey) .. " to toggle interface\nF = Toggle Aim Assist\nP = Panic Mode",
+    "Press " .. tostring(CONFIG.UIKey) .. " to toggle interface\nP = Panic Mode",
     "check"
 )
 
@@ -781,19 +720,10 @@ local function CleanupAll()
     HitboxModule:ClearAllHitboxes()
     CharacterModule:CloneESPCleanup()
     
-    for player in pairs(VisualHelpers.Beams) do
-        VisualHelpers:ClearLine(player)
-    end
-    
-    for player in pairs(VisualHelpers.JumpHighlights) do
-        VisualHelpers:RemoveJumpESP(player)
-    end
-    
-    AimAssist:CleanupVisuals()
+    for player in pairs(VisualHelpers.Beams) do VisualHelpers:ClearLine(player) end
+    for player in pairs(VisualHelpers.JumpHighlights) do VisualHelpers:RemoveJumpESP(player) end
     
     warn("ZeckHub: Cleanup complete")
 end
 
-game:BindToClose(function()
-    CleanupAll()
-end)
+game:BindToClose(function() CleanupAll() end)
