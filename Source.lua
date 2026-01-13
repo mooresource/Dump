@@ -1,729 +1,719 @@
--- Section 1: Services
-local Services = {
-    Players = game:GetService("Players"),
-    RunService = game:GetService("RunService"),
-    Workspace = game:GetService("Workspace"),
-    CoreGui = game:GetService("CoreGui"),
-    TeleportService = game:GetService("TeleportService"),
-    UserInputService = game:GetService("UserInputService"),
-    StarterGui = game:GetService("StarterGui"),
-    HttpService = game:GetService("HttpService")
-}
+--// Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
-local LocalPlayer = Services.Players.LocalPlayer
-local Camera = Services.Workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local Mouse = LocalPlayer:GetMouse()
 
-local CONFIG = {
-    SaveFile = "zeckhub_config",
-    UIKey = Enum.KeyCode.K,
-    Theme = "Dark"
-}
-
--- Section 2: UI Manager
-local UIManager = {
-    Rayfield = nil,
-    Window = nil
-}
-
-function UIManager:LoadRayfield()
-    local success, result = pcall(function()
-        return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
-    end)
+local Constants = {
+    GUI_NAME = "FOVGui",
+    GUI_SIZE = Vector2.new(400, 265),
     
-    if not success then
-        warn("ZeckHub: Failed to load Rayfield")
-        return false
-    end
+    COLORS = {
+        Background = Color3.fromRGB(20, 20, 25),
+        GroupBox = Color3.fromRGB(30, 30, 35),
+        GroupBoxBorder = Color3.fromRGB(60, 60, 70),
+        Primary = Color3.fromRGB(100, 150, 255),
+        Success = Color3.fromRGB(100, 200, 120),
+        Text = Color3.fromRGB(200, 200, 210),
+        TextDim = Color3.fromRGB(140, 140, 150),
+        InputBg = Color3.fromRGB(25, 25, 30),
+    },
     
-    self.Rayfield = result
-    return true
-end
+    LIMITS = {
+        FOVRadiusMin = 10,
+        FOVRadiusMax = 800,
+        MaxDistanceMin = 100,
+        MaxDistanceMax = 10000,
+        MissChanceMin = 0,
+        MissChanceMax = 100,
+    }
+}
 
-function UIManager:CreateWindow()
-    self.Window = self.Rayfield:CreateWindow({
-        Name = "ZeckHub",
-        LoadingTitle = "Loading ZeckHub...",
-        LoadingSubtitle = "by Robertzeck",
-        ConfigurationSaving = {
-            Enabled = true,
-            FileName = CONFIG.SaveFile
-        },
-        KeySystem = false,
-        Theme = CONFIG.Theme,
-        ToggleUIKeybind = CONFIG.UIKey
-    })
-end
-
-function UIManager:Notify(title, content, icon)
-    if self.Rayfield then
-        self.Rayfield:Notify({
-            Title = title,
-            Content = content,
-            Duration = 3,
-            Image = icon or "info"
-        })
-    end
-end
-
-if not UIManager:LoadRayfield() then return end
-UIManager:CreateWindow()
-
--- Section 3: Hitbox Module
-local HitboxModule = {
+--// Configuration
+local Config = {
     Enabled = true,
-    CurrentScale = 5.0,
-    TrackedBalls = {}
+    FollowMouse = true,
+    TeamCheck = false,
+    WallCheck = false,
+    ShowFOV = true,
+    FOVRadius = 150,
+    MaxDistance = 1000,
+    TargetUsername = "",
+    MissChance = 0,
+    HitPart = "Head", -- Always Head
 }
 
-function HitboxModule:FindAnyPart(model)
-    for _, part in ipairs(model:GetDescendants()) do
-        if part:IsA("BasePart") then return part end
-    end
-    return nil
-end
-
-function HitboxModule:CreateBallHitbox(model, scale)
-    local existing = model:FindFirstChild("Ball.001")
-    if existing then existing:Destroy() end
-    
-    local ref = self:FindAnyPart(model)
-    if not ref then return end
-    
-    local hitbox = Instance.new("Part")
-    hitbox.Name = "Ball.001"
-    hitbox.Shape = Enum.PartType.Ball
-    hitbox.Size = Vector3.new(2, 2, 2) * scale
-    hitbox.CFrame = ref.CFrame
-    hitbox.Anchored = true
-    hitbox.CanCollide = false
-    hitbox.Transparency = 0.7
-    hitbox.Material = Enum.Material.ForceField
-    hitbox.Color = Color3.fromRGB(0, 255, 0)
-    hitbox.Parent = model
-    
-    self.TrackedBalls[model] = hitbox
-end
-
-function HitboxModule:UpdateAllHitboxes(scale)
-    for model, hitbox in pairs(self.TrackedBalls) do
-        if model.Parent and hitbox.Parent then
-            hitbox.Size = Vector3.new(2, 2, 2) * scale
-        else
-            self.TrackedBalls[model] = nil
-        end
-    end
-end
-
-function HitboxModule:ClearAllHitboxes()
-    for _, hitbox in pairs(self.TrackedBalls) do
-        if hitbox and hitbox.Parent then hitbox:Destroy() end
-    end
-    self.TrackedBalls = {}
-end
-
-function HitboxModule:ProcessNewBall(model)
-    if not self.Enabled then return end
-    task.wait(0.1)
-    
-    if model.Parent and model:IsA("Model") and model.Name:match("^CLIENT_BALL_%d+$") then
-        self:CreateBallHitbox(model, self.CurrentScale)
-    end
-end
-
-function HitboxModule:RebuildAllHitboxes()
-    self:ClearAllHitboxes()
-    for _, model in ipairs(Services.Workspace:GetChildren()) do
-        if model:IsA("Model") and model.Name:match("^CLIENT_BALL_%d+$") then
-            self:ProcessNewBall(model)
-        end
-    end
-end
-
-function HitboxModule:SetupListeners()
-    Services.Workspace.ChildAdded:Connect(function(child)
-        if child:IsA("Model") and child.Name:match("^CLIENT_BALL_%d+$") then
-            self:ProcessNewBall(child)
-        end
-    end)
-    
-    task.spawn(function()
-        for _, model in ipairs(Services.Workspace:GetChildren()) do
-            if model:IsA("Model") and model.Name:match("^CLIENT_BALL_%d+$") then
-                self:ProcessNewBall(model)
-            end
-        end
-    end)
-end
-
-function HitboxModule:Initialize(tab)
-    tab:CreateSection("Hitbox Ball")
-    
-    tab:CreateSlider({
-        Name = "Hitbox Size",
-        Range = {0, 20},
-        Increment = 0.1,
-        Suffix = "x",
-        CurrentValue = self.CurrentScale,
-        Flag = "HitboxSize",
-        Callback = function(val)
-            self.CurrentScale = val
-            if self.Enabled then self:UpdateAllHitboxes(val) end
-        end
-    })
-    
-    tab:CreateToggle({
-        Name = "Enable Hitboxes",
-        CurrentValue = self.Enabled,
-        Flag = "HitboxToggle",
-        Callback = function(val)
-            self.Enabled = val
-            if val then
-                self:RebuildAllHitboxes()
-                UIManager:Notify("Hitboxes Enabled", "Ball hitboxes created", "check")
-            else
-                self:ClearAllHitboxes()
-                UIManager:Notify("Hitboxes Disabled", "Ball hitboxes removed", "x")
-            end
-        end
-    })
-    
-    self:SetupListeners()
-end
-
--- Section 4: Character Module
-local CharacterModule = {
-    DirectionalJump = true,
-    AirMovement = false,
-    AirMoveSpeed = 50,
-    IsJumping = false,
-    
-    CloneESP = {
-        Enabled = true,
-        Color = Color3.fromRGB(255, 255, 255),
-        Folder = nil,
-        Clones = {},
-        RenderConnection = nil
-    }
+local Visual = {
+    FOVColor = Color3.fromRGB(100, 150, 255),
+    FOVThickness = 2,
+    HighlightFill = Color3.fromRGB(255, 107, 107),
+    HighlightOutline = Color3.fromRGB(100, 150, 255),
+    FillTransparency = 0.6,
+    OutlineTransparency = 0,
 }
 
-function CharacterModule:SetupCharacter(character)
-    self.Humanoid = character:WaitForChild("Humanoid")
-    self.HRP = character:WaitForChild("HumanoidRootPart")
-    
-    self.Humanoid.StateChanged:Connect(function(_, state)
-        if state == Enum.HumanoidStateType.Landed then self.Humanoid.AutoRotate = true end
-    end)
-    
-    if self.CloneESP.Enabled then self:CreateCloneESP(character) end
-end
-
-function CharacterModule:SetupCharacterListeners()
-    LocalPlayer.CharacterAdded:Connect(function(char)
-        task.wait(1)
-        self:SetupCharacter(char)
-    end)
-    
-    Services.UserInputService.JumpRequest:Connect(function()
-        if self.DirectionalJump and self.Humanoid and self.HRP then
-            task.defer(function()
-                task.wait(0.03)
-                local dir = Vector3.new(Camera.CFrame.LookVector.X, 0, Camera.CFrame.LookVector.Z)
-                if dir.Magnitude > 0 then
-                    self.HRP.CFrame = CFrame.lookAt(self.HRP.Position, self.HRP.Position + dir.Unit)
-                    self.Humanoid.AutoRotate = false
-                end
-            end)
-        elseif self.Humanoid then
-            self.Humanoid.AutoRotate = true
-        end
-    end)
-    
-    Services.RunService.Stepped:Connect(function()
-        if self.Humanoid then
-            local state = self.Humanoid:GetState()
-            self.IsJumping = (state == Enum.HumanoidStateType.Jumping or state == Enum.HumanoidStateType.Freefall)
-        end
-    end)
-    
-    Services.RunService.RenderStepped:Connect(function()
-        if self.AirMovement and self.IsJumping and self.Humanoid and self.HRP then
-            local moveDir = self.Humanoid.MoveDirection
-            if moveDir.Magnitude > 0 then
-                self.HRP.Velocity = Vector3.new(
-                    moveDir.X * self.AirMoveSpeed,
-                    self.HRP.Velocity.Y,
-                    moveDir.Z * self.AirMoveSpeed
-                )
-            end
-        end
-    end)
-end
-
-local VALID_BODY_PARTS = {
-    Head = true, Torso = true, UpperTorso = true, LowerTorso = true,
-    LeftArm = true, RightArm = true, LeftUpperArm = true, RightUpperArm = true,
-    LeftLowerArm = true, RightLowerArm = true, LeftHand = true, RightHand = true,
-    LeftLeg = true, RightLeg = true, LeftUpperLeg = true, RightUpperLeg = true,
-    LeftLowerLeg = true, RightLowerLeg = true, LeftFoot = true, RightFoot = true,
-    HumanoidRootPart = true
+local State = {
+    CurrentTarget = nil,
+    CurrentHighlight = nil,
+    Connections = {},
+    ClickToTargetMode = false,
+    FOVRingObj = nil,
+    GUIVisible = true,
 }
 
-function CharacterModule:CloneESPCleanup()
-    if self.CloneESP.RenderConnection then
-        self.CloneESP.RenderConnection:Disconnect()
-        self.CloneESP.RenderConnection = nil
-    end
+--// Cleanup
+local function Cleanup()
+    local oldGui = PlayerGui:FindFirstChild(Constants.GUI_NAME)
+    if oldGui then oldGui:Destroy() end
     
-    if self.CloneESP.Folder then
-        self.CloneESP.Folder:Destroy()
-        self.CloneESP.Folder = nil
+    if State.CurrentHighlight then 
+        State.CurrentHighlight:Destroy()
+        State.CurrentHighlight = nil
     end
-    
-    self.CloneESP.Clones = {}
+
+    for _, connection in pairs(State.Connections) do
+        if connection then connection:Disconnect() end
+    end
+    State.Connections = {}
 end
 
-function CharacterModule:CreateCloneESP(character)
-    if not character then return end
-    
-    self:CloneESPCleanup()
-    
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    self.CloneESP.Folder = Instance.new("Folder")
-    self.CloneESP.Folder.Name = "ESP_Clones"
-    self.CloneESP.Folder.Parent = Camera
-    
-    for _, part in ipairs(character:GetChildren()) do
-        if (part:IsA("Part") or part:IsA("MeshPart")) and VALID_BODY_PARTS[part.Name] then
-            local clone = part:Clone()
-            clone.Anchored = true
-            clone.CanCollide = false
-            clone.CanTouch = false
-            clone.CanQuery = false
-            clone.Parent = self.CloneESP.Folder
-            
-            clone.Material = part.Material
-            clone.Transparency = part.Transparency + 0.3
-            clone.Color = self.CloneESP.Color
-            
-            for _, child in ipairs(clone:GetChildren()) do
-                if child:IsA("Script") or child:IsA("Motor6D") then child:Destroy() end
-            end
-            
-            self.CloneESP.Clones[part] = clone
-        end
+--// Utility Functions
+local function AddConnection(name, connection)
+    if State.Connections[name] then State.Connections[name]:Disconnect() end
+    State.Connections[name] = connection
+end
+
+local function Clamp(value, min, max)
+    return math.max(min, math.min(max, value))
+end
+
+local function IsVisible(targetPart)
+    if not Config.WallCheck then return true end
+    local ignoreList = {LocalPlayer.Character, targetPart.Parent}
+    local parts = Camera:GetPartsObscuringTarget({targetPart.Position}, ignoreList)
+    return #parts == 0
+end
+
+local function TweenObject(obj, props, duration)
+    local tween = TweenService:Create(obj, TweenInfo.new(duration or 0.2, Enum.EasingStyle.Quad), props)
+    tween:Play()
+    return tween
+end
+
+local function GetFOVPosition()
+    if Config.FollowMouse then
+        local mousePos = UserInputService:GetMouseLocation()
+        return Vector2.new(math.floor(mousePos.X + 0.5), math.floor(mousePos.Y + 0.5))
+    else
+        local viewport = Camera.ViewportSize
+        return Vector2.new(math.floor(viewport.X / 2 + 0.5), math.floor(viewport.Y / 2 + 0.5))
     end
+end
+
+--// Target Logic
+local function GetClosestPlayerToCursor()
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return nil end
     
-    self.CloneESP.RenderConnection = Services.RunService.RenderStepped:Connect(function()
-        if not character or not character.Parent or not hrp then
-            self:CloneESPCleanup()
-            return
-        end
-        
-        local camLook = Camera.CFrame.LookVector
-        local horizontalLook = Vector3.new(camLook.X, 0, camLook.Z)
-        if horizontalLook.Magnitude > 0 then
-            horizontalLook = horizontalLook.Unit
-        else
-            horizontalLook = Vector3.new(0, 0, 1)
-        end
-        
-        local espPos = hrp.Position - horizontalLook * 5
-        local espCFrame = CFrame.new(espPos, espPos + horizontalLook)
-        
-        for originalPart, clone in pairs(self.CloneESP.Clones) do
-            if originalPart and originalPart:IsDescendantOf(character) and clone and clone.Parent then
-                local success, relativeCFrame = pcall(function()
-                    return hrp.CFrame:ToObjectSpace(originalPart.CFrame)
-                end)
+    if Config.TargetUsername ~= "" then
+        for _, Player in pairs(Players:GetPlayers()) do
+            if Player ~= LocalPlayer then
+                local matchesUsername = string.find(string.lower(Player.Name), string.lower(Config.TargetUsername))
+                local matchesDisplay = string.find(string.lower(Player.DisplayName), string.lower(Config.TargetUsername))
                 
-                if success then
-                    clone.CFrame = espCFrame * relativeCFrame
-                    clone.Color = self.CloneESP.Color
-                    clone.Material = originalPart.Material
-                    clone.Transparency = originalPart.Transparency + 0.3
+                if matchesUsername or matchesDisplay then
+                    if not Config.TeamCheck or Player.Team ~= LocalPlayer.Team then
+                        local Character = Player.Character
+                        if Character and Character:FindFirstChild("Head") and Character:FindFirstChild("Humanoid") and Character.Humanoid.Health > 0 then
+                            local ScreenPos, OnScreen = Camera:WorldToScreenPoint(Character.Head.Position)
+                            if OnScreen then return Player end
+                        end
+                    end
+                end
+            end
+        end
+        return nil
+    end
+    
+    local ClosestPlayer, ShortestDistance = nil, Config.FOVRadius
+    local OriginPos = GetFOVPosition()
+    
+    for _, Player in pairs(Players:GetPlayers()) do
+        if Player ~= LocalPlayer then
+            if not Config.TeamCheck or Player.Team ~= LocalPlayer.Team then
+                local Character = Player.Character
+                if Character and Character:FindFirstChild("Head") and Character:FindFirstChild("Humanoid") and Character.Humanoid.Health > 0 then
+                    local Head = Character.Head
+                    local Root = Character.HumanoidRootPart
+                    local Distance = (LocalPlayer.Character.HumanoidRootPart.Position - Root.Position).Magnitude
+                    
+                    if Distance <= Config.MaxDistance and IsVisible(Head) then
+                        local ScreenPos, OnScreen = Camera:WorldToScreenPoint(Head.Position)
+                        if OnScreen then
+                            local ScreenDist = (Vector2.new(ScreenPos.X, ScreenPos.Y) - OriginPos).Magnitude
+                            if ScreenDist < ShortestDistance then
+                                ClosestPlayer, ShortestDistance = Player, ScreenDist
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return ClosestPlayer
+end
+
+--// Highlight System
+local Highlight = {}
+function Highlight.Apply(player)
+    if not player or not player.Character then return nil end
+    local h = Instance.new("Highlight")
+    h.FillColor = Visual.HighlightFill
+    h.OutlineColor = Visual.HighlightOutline
+    h.FillTransparency = Visual.FillTransparency
+    h.OutlineTransparency = Visual.OutlineTransparency
+    h.Adornee = player.Character 
+    h.Parent = PlayerGui 
+    return h
+end
+
+function Highlight.Remove()
+    if State.CurrentHighlight then 
+        State.CurrentHighlight:Destroy()
+        State.CurrentHighlight = nil 
+    end
+end
+
+function Highlight.Update(newTarget)
+    if newTarget ~= State.CurrentTarget then
+        Highlight.Remove()
+        if newTarget then
+            State.CurrentHighlight = Highlight.Apply(newTarget)
+        end
+    end
+    State.CurrentTarget = newTarget
+end
+
+--// GUI Builder
+local GUIBuilder = {}
+
+function GUIBuilder.EnableClickToTarget(targetTextbox)
+    State.ClickToTargetMode = true
+    Mouse.Icon = "rbxasset://textures/Cursors/Crosshair.png"
+    local connection
+    connection = Mouse.Button1Down:Connect(function()
+        local target = Mouse.Target
+        if target then
+            local character = target:FindFirstAncestorOfClass("Model")
+            if character then
+                local player = Players:GetPlayerFromCharacter(character)
+                if player and player ~= LocalPlayer then
+                    Config.TargetUsername = player.Name
+                    targetTextbox.Text = player.Name
+                    State.ClickToTargetMode = false
+                    Mouse.Icon = ""
+                    connection:Disconnect()
                 end
             end
         end
     end)
+    AddConnection("ClickToTarget", connection)
 end
 
-function CharacterModule:Initialize(tab)
-    self.Humanoid = nil
-    self.HRP = nil
+function GUIBuilder.CreateScreenGui()
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = Constants.GUI_NAME
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.IgnoreGuiInset = true
+    ScreenGui.Parent = PlayerGui
+    return ScreenGui
+end
+
+function GUIBuilder.CreateFOVRing(parent)
+    local FOVRing = Instance.new("Frame")
+    FOVRing.Size = UDim2.new(0, Config.FOVRadius * 2, 0, Config.FOVRadius * 2)
+    FOVRing.AnchorPoint = Vector2.new(0.5, 0.5)
+    FOVRing.BackgroundTransparency = 1
+    FOVRing.Parent = parent
     
-    tab:CreateSection("Movement")
+    local Stroke = Instance.new("UIStroke")
+    Stroke.Thickness = Visual.FOVThickness
+    Stroke.Color = Visual.FOVColor
+    Stroke.Transparency = 0.3
+    Stroke.Parent = FOVRing
     
-    tab:CreateToggle({
-        Name = "Directional Jump",
-        CurrentValue = self.DirectionalJump,
-        Flag = "DirectionalJump",
-        Callback = function(val)
-            self.DirectionalJump = val
-            if not val and self.Humanoid then self.Humanoid.AutoRotate = true end
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(1, 0)
+    Corner.Parent = FOVRing
+    
+    State.FOVRingObj = FOVRing
+    return FOVRing
+end
+
+function GUIBuilder.CreateMainFrame(parent)
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Size = UDim2.new(0, Constants.GUI_SIZE.X, 0, Constants.GUI_SIZE.Y)
+    MainFrame.Position = UDim2.new(0, 30, 0, 120)
+    MainFrame.BackgroundColor3 = Constants.COLORS.Background
+    MainFrame.BorderSizePixel = 0
+    MainFrame.Parent = parent
+    
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 4)
+    Corner.Parent = MainFrame
+    
+    local Stroke = Instance.new("UIStroke")
+    Stroke.Color = Constants.COLORS.GroupBoxBorder
+    Stroke.Thickness = 1
+    Stroke.Parent = MainFrame
+    
+    -- Title Bar
+    local TitleBar = Instance.new("Frame")
+    TitleBar.Size = UDim2.new(1, 0, 0, 30)
+    TitleBar.BackgroundTransparency = 1
+    TitleBar.Parent = MainFrame
+    
+    local TitleLabel = Instance.new("TextLabel")
+    TitleLabel.Size = UDim2.new(1, -60, 1, 0)
+    TitleLabel.Position = UDim2.new(0, 10, 0, 0)
+    TitleLabel.BackgroundTransparency = 1
+    TitleLabel.Text = "SILENT AIM"
+    TitleLabel.Font = Enum.Font.Code
+    TitleLabel.TextSize = 14
+    TitleLabel.TextColor3 = Constants.COLORS.Text
+    TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    TitleLabel.Parent = TitleBar
+    
+    local MinimizeBtn = Instance.new("TextButton")
+    MinimizeBtn.Size = UDim2.new(0, 20, 0, 20)
+    MinimizeBtn.Position = UDim2.new(1, -30, 0, 5)
+    MinimizeBtn.BackgroundColor3 = Constants.COLORS.InputBg
+    MinimizeBtn.Text = "_"
+    MinimizeBtn.Font = Enum.Font.Code
+    MinimizeBtn.TextSize = 14
+    MinimizeBtn.TextColor3 = Constants.COLORS.Text
+    MinimizeBtn.BorderSizePixel = 0
+    MinimizeBtn.Parent = TitleBar
+    
+    MinimizeBtn.MouseButton1Click:Connect(function()
+        State.GUIVisible = not State.GUIVisible
+        if State.GUIVisible then
+            MainFrame.Size = UDim2.new(0, Constants.GUI_SIZE.X, 0, Constants.GUI_SIZE.Y)
+            MinimizeBtn.Text = "_"
+        else
+            MainFrame.Size = UDim2.new(0, Constants.GUI_SIZE.X, 0, 30)
+            MinimizeBtn.Text = "+"
         end
-    })
+    end)
+
+    return MainFrame
+end
+
+function GUIBuilder.CreateGroupBox(parent, title, position, size)
+    local GroupBox = Instance.new("Frame")
+    GroupBox.Size = size
+    GroupBox.Position = position
+    GroupBox.BackgroundColor3 = Constants.COLORS.GroupBox
+    GroupBox.BorderSizePixel = 0
+    GroupBox.Parent = parent
     
-    tab:CreateParagraph({
-        Title = "How to Use",
-        Content = "Turn off shift-lock. Character auto-steers to where you look."
-    })
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 3)
+    Corner.Parent = GroupBox
     
-    tab:CreateToggle({
-        Name = "Air Movement",
-        CurrentValue = self.AirMovement,
-        Flag = "AirMoveToggle",
-        Callback = function(val) self.AirMovement = val end
-    })
+    local Stroke = Instance.new("UIStroke")
+    Stroke.Color = Constants.COLORS.GroupBoxBorder
+    Stroke.Thickness = 1
+    Stroke.Parent = GroupBox
     
-    tab:CreateSlider({
-        Name = "Air Move Speed",
-        Range = {10, 150},
-        Increment = 5,
-        Suffix = "studs/s",
-        CurrentValue = self.AirMoveSpeed,
-        Flag = "AirMoveSpeed",
-        Callback = function(val) self.AirMoveSpeed = val end
-    })
+    local TitleLabel = Instance.new("TextLabel")
+    TitleLabel.Size = UDim2.new(1, -10, 0, 20)
+    TitleLabel.Position = UDim2.new(0, 5, 0, 2)
+    TitleLabel.BackgroundTransparency = 1
+    TitleLabel.Text = title
+    TitleLabel.Font = Enum.Font.Code
+    TitleLabel.TextSize = 12
+    TitleLabel.TextColor3 = Constants.COLORS.TextDim
+    TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    TitleLabel.Parent = GroupBox
     
-    tab:CreateSection("Visual")
+    local ContentFrame = Instance.new("Frame")
+    ContentFrame.Size = UDim2.new(1, -10, 1, -25)
+    ContentFrame.Position = UDim2.new(0, 5, 0, 22)
+    ContentFrame.BackgroundTransparency = 1
+    ContentFrame.Parent = GroupBox
     
-    tab:CreateToggle({
-        Name = "Clone ESP",
-        CurrentValue = self.CloneESP.Enabled,
-        Flag = "CloneESP_Toggle",
-        Callback = function(val)
-            self.CloneESP.Enabled = val
-            if val then
-                if LocalPlayer.Character then self:CreateCloneESP(LocalPlayer.Character) end
-            else
-                self:CloneESPCleanup()
-            end
+    local UIList = Instance.new("UIListLayout")
+    UIList.Padding = UDim.new(0, 5)
+    UIList.Parent = ContentFrame
+    
+    return ContentFrame
+end
+
+function GUIBuilder.MakeDraggable(frame)
+    local dragging, dragInput, dragStart, startPos
+    
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
         end
-    })
+    end)
     
-    tab:CreateColorPicker({
-        Name = "Clone ESP Color",
-        Color = self.CloneESP.Color,
-        Flag = "CloneESP_Color",
-        Callback = function(color)
-            self.CloneESP.Color = color
-            for _, clone in pairs(self.CloneESP.Clones) do
-                if clone and clone:IsA("BasePart") then clone.Color = color end
-            end
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
         end
-    })
-    
-    self:SetupCharacterListeners()
-    if LocalPlayer.Character then self:SetupCharacter(LocalPlayer.Character) end
+    end)
 end
 
--- Section 5: Visual Helpers
-local VisualHelpers = {
-    LinesEnabled = true,
-    LineDistance = 50,
-    MaxLines = 6,
-    Beams = {},
+function GUIBuilder.CreateCheckbox(parent, name, default, callback)
+    local Container = Instance.new("Frame")
+    Container.Size = UDim2.new(1, 0, 0, 18)
+    Container.BackgroundTransparency = 1
+    Container.Parent = parent
     
-    AutoTiltEnabled = false,
-    TiltHotkey = Enum.KeyCode.Z,
+    local Checkbox = Instance.new("TextButton")
+    Checkbox.Size = UDim2.new(0, 14, 0, 14)
+    Checkbox.Position = UDim2.new(0, 0, 0, 2)
+    Checkbox.BackgroundColor3 = Constants.COLORS.InputBg
+    Checkbox.BorderSizePixel = 0
+    Checkbox.Text = ""
+    Checkbox.Parent = Container
     
-    JumpESPEnabled = true,
-    JumpHighlights = {}
-}
-
-function VisualHelpers:CreateBeamForPlayer(player, index)
-    if self.Beams[player] then return end
+    local CheckStroke = Instance.new("UIStroke")
+    CheckStroke.Color = default and Constants.COLORS.Primary or Constants.COLORS.GroupBoxBorder
+    CheckStroke.Thickness = 1
+    CheckStroke.Parent = Checkbox
     
-    local character = player.Character
-    if not character then return end
+    local Checkmark = Instance.new("TextLabel")
+    Checkmark.Size = UDim2.new(1, 0, 1, 0)
+    Checkmark.BackgroundTransparency = 1
+    Checkmark.Text = default and "✓" or ""
+    Checkmark.Font = Enum.Font.Code
+    Checkmark.TextSize = 12
+    Checkmark.TextColor3 = Constants.COLORS.Primary
+    Checkmark.Parent = Checkbox
     
-    local head = character:FindFirstChild("Head")
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not head or not hrp then return end
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, -20, 1, 0)
+    Label.Position = UDim2.new(0, 20, 0, 0)
+    Label.BackgroundTransparency = 1
+    Label.Text = name
+    Label.Font = Enum.Font.Code
+    Label.TextSize = 11
+    Label.TextColor3 = Constants.COLORS.Text
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Container
     
-    local colors = {
-        Color3.fromRGB(255, 0, 0), Color3.fromRGB(0, 255, 0),
-        Color3.fromRGB(0, 0, 255), Color3.fromRGB(255, 165, 0),
-        Color3.fromRGB(128, 0, 128), Color3.fromRGB(255, 255, 0)
-    }
-    
-    local startAtt = Instance.new("Attachment", head)
-    local targetPart = Instance.new("Part")
-    targetPart.Anchored = true
-    targetPart.CanCollide = false
-    targetPart.Transparency = 1
-    targetPart.Size = Vector3.new(0.1, 0.1, 0.1)
-    targetPart.Parent = Services.Workspace
-    local endAtt = Instance.new("Attachment", targetPart)
-    
-    local beam = Instance.new("Beam")
-    beam.Attachment0 = startAtt
-    beam.Attachment1 = endAtt
-    beam.Width0 = 0.25
-    beam.Width1 = 0.25
-    beam.FaceCamera = true
-    beam.LightEmission = 1
-    beam.Transparency = NumberSequence.new(0.3)
-    beam.Color = ColorSequence.new(colors[(index - 1) % #colors + 1])
-    beam.Parent = head
-    
-    self.Beams[player] = { beam = beam, target = targetPart, attachment = startAtt }
+    Checkbox.MouseButton1Click:Connect(function()
+        default = not default
+        Checkmark.Text = default and "✓" or ""
+        CheckStroke.Color = default and Constants.COLORS.Primary or Constants.COLORS.GroupBoxBorder
+        callback(default)
+    end)
 end
 
-function VisualHelpers:UpdateLinePosition(player)
-    local data = self.Beams[player]
-    if not data then return end
+function GUIBuilder.CreateSlider(parent, name, min, max, default, callback)
+    local Container = Instance.new("Frame")
+    Container.Size = UDim2.new(1, 0, 0, 35)
+    Container.BackgroundTransparency = 1
+    Container.Parent = parent
     
-    local character = player.Character
-    if not character then return end
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0.6, 0, 0, 15)
+    Label.BackgroundTransparency = 1
+    Label.Text = name
+    Label.Font = Enum.Font.Code
+    Label.TextSize = 11
+    Label.TextColor3 = Constants.COLORS.Text
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Container
     
-    local head = character:FindFirstChild("Head")
-    local hrp = character:FindFirstChild("HumanoidRootPart")
+    local ValueBox = Instance.new("TextBox")
+    ValueBox.Size = UDim2.new(0, 50, 0, 15)
+    ValueBox.Position = UDim2.new(1, -50, 0, 0)
+    ValueBox.BackgroundColor3 = Constants.COLORS.InputBg
+    ValueBox.BorderSizePixel = 0
+    ValueBox.Font = Enum.Font.Code
+    ValueBox.TextSize = 10
+    ValueBox.TextColor3 = Constants.COLORS.Primary
+    ValueBox.Text = tostring(default)
+    ValueBox.Parent = Container
     
-    if head and hrp and data.target then
-        data.target.Position = head.Position + hrp.CFrame.LookVector * self.LineDistance
+    local SliderBg = Instance.new("Frame")
+    SliderBg.Size = UDim2.new(1, 0, 0, 4)
+    SliderBg.Position = UDim2.new(0, 0, 1, -8)
+    SliderBg.BackgroundColor3 = Constants.COLORS.InputBg
+    SliderBg.BorderSizePixel = 0
+    SliderBg.Parent = Container
+    
+    local SliderFill = Instance.new("Frame")
+    SliderFill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+    SliderFill.BackgroundColor3 = Constants.COLORS.Primary
+    SliderFill.BorderSizePixel = 0
+    SliderFill.Parent = SliderBg
+    
+    local dragging = false
+    
+    local function UpdateSlider(input)
+        local pos = math.clamp((input.Position.X - SliderBg.AbsolutePosition.X) / SliderBg.AbsoluteSize.X, 0, 1)
+        local value = math.floor(min + (max - min) * pos)
+        SliderFill.Size = UDim2.new(pos, 0, 1, 0)
+        ValueBox.Text = tostring(value)
+        callback(value)
     end
+    
+    SliderBg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            UpdateSlider(input)
+        end
+    end)
+    
+    SliderBg.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            UpdateSlider(input)
+        end
+    end)
+    
+    ValueBox.FocusLost:Connect(function()
+        local value = tonumber(ValueBox.Text) or default
+        value = Clamp(value, min, max)
+        ValueBox.Text = tostring(value)
+        SliderFill.Size = UDim2.new((value - min) / (max - min), 0, 1, 0)
+        callback(value)
+    end)
 end
 
-function VisualHelpers:ClearLine(player)
-    local data = self.Beams[player]
-    if not data then return end
+function GUIBuilder.CreateCombobox(parent, name, options, default, callback)
+    local Container = Instance.new("Frame")
+    Container.Size = UDim2.new(1, 0, 0, 18)
+    Container.BackgroundTransparency = 1
+    Container.Parent = parent
     
-    if data.beam then data.beam:Destroy() end
-    if data.target then data.target:Destroy() end
-    if data.attachment then data.attachment:Destroy() end
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0.5, 0, 1, 0)
+    Label.BackgroundTransparency = 1
+    Label.Text = name
+    Label.Font = Enum.Font.Code
+    Label.TextSize = 11
+    Label.TextColor3 = Constants.COLORS.Text
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Container
     
-    self.Beams[player] = nil
-end
-
-function VisualHelpers:ApplyTilt()
-    if not self.AutoTiltEnabled then return end
+    local Dropdown = Instance.new("TextButton")
+    Dropdown.Size = UDim2.new(0, 80, 0, 16)
+    Dropdown.Position = UDim2.new(1, -80, 0, 1)
+    Dropdown.BackgroundColor3 = Constants.COLORS.InputBg
+    Dropdown.BorderSizePixel = 0
+    Dropdown.Font = Enum.Font.Code
+    Dropdown.TextSize = 10
+    Dropdown.TextColor3 = Constants.COLORS.Primary
+    Dropdown.Text = default
+    Dropdown.Parent = Container
     
-    local character = LocalPlayer.Character
-    if not character then return end
+    local isOpen = false
+    local OptionsFrame = Instance.new("Frame")
+    OptionsFrame.Size = UDim2.new(0, 80, 0, #options * 18)
+    OptionsFrame.Position = UDim2.new(1, -80, 1, 2)
+    OptionsFrame.BackgroundColor3 = Constants.COLORS.InputBg
+    OptionsFrame.BorderSizePixel = 0
+    OptionsFrame.Visible = false
+    OptionsFrame.ZIndex = 10
+    OptionsFrame.Parent = Container
     
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if humanoid and humanoid:GetState() == Enum.HumanoidStateType.Freefall then
-        local dir = Vector3.new(Camera.CFrame.LookVector.X, 0, Camera.CFrame.LookVector.Z)
-        if dir.Magnitude > 0 then humanoid:Move(dir.Unit, false) end
-    end
-end
-
-function VisualHelpers:IsEnemy(player)
-    return player ~= LocalPlayer and 
-           player.Team and LocalPlayer.Team and 
-           player.Team ~= LocalPlayer.Team
-end
-
-function VisualHelpers:CreateJumpESP(player)
-    if not player.Character or self.JumpHighlights[player] then return end
+    local OptionsList = Instance.new("UIListLayout")
+    OptionsList.Parent = OptionsFrame
     
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "JumpESP"
-    highlight.Adornee = player.Character
-    highlight.FillTransparency = 1
-    highlight.OutlineTransparency = 0
-    highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
-    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.Parent = player.Character
-    
-    self.JumpHighlights[player] = highlight
-end
-
-function VisualHelpers:RemoveJumpESP(player)
-    if self.JumpHighlights[player] then
-        self.JumpHighlights[player]:Destroy()
-        self.JumpHighlights[player] = nil
-    end
-end
-
-function VisualHelpers:SetupPlayerJumpESP(player)
-    if player == LocalPlayer then return end
-    
-    local function MonitorCharacter(character)
-        local humanoid = character:WaitForChild("Humanoid", 3)
-        if not humanoid then return end
+    for _, option in ipairs(options) do
+        local OptionBtn = Instance.new("TextButton")
+        OptionBtn.Size = UDim2.new(1, 0, 0, 18)
+        OptionBtn.BackgroundColor3 = Constants.COLORS.GroupBox
+        OptionBtn.BorderSizePixel = 0
+        OptionBtn.Font = Enum.Font.Code
+        OptionBtn.TextSize = 10
+        OptionBtn.TextColor3 = Constants.COLORS.Text
+        OptionBtn.Text = option
+        OptionBtn.ZIndex = 11
+        OptionBtn.Parent = OptionsFrame
         
-        humanoid.StateChanged:Connect(function(_, newState)
-            if not self.JumpESPEnabled then return end
-            
-            if self:IsEnemy(player) then
-                if newState == Enum.HumanoidStateType.Jumping or newState == Enum.HumanoidStateType.Freefall then
-                    self:CreateJumpESP(player)
-                elseif newState == Enum.HumanoidStateType.Landed then
-                    self:RemoveJumpESP(player)
-                end
-            end
+        OptionBtn.MouseButton1Click:Connect(function()
+            Dropdown.Text = option
+            OptionsFrame.Visible = false
+            isOpen = false
+            callback(option)
         end)
     end
     
-    if player.Character then MonitorCharacter(player.Character) end
-    player.CharacterAdded:Connect(MonitorCharacter)
+    Dropdown.MouseButton1Click:Connect(function()
+        isOpen = not isOpen
+        OptionsFrame.Visible = isOpen
+    end)
 end
 
-function VisualHelpers:SetupListeners()
-    Services.RunService.RenderStepped:Connect(function()
-        if self.LinesEnabled then
-            local enemies = {}
-            for _, player in ipairs(Services.Players:GetPlayers()) do
-                if player ~= LocalPlayer and player.Team ~= LocalPlayer.Team then
-                    table.insert(enemies, player)
+function GUIBuilder.CreateTextbox(parent, name, default, callback, isTargetBox)
+    local Container = Instance.new("Frame")
+    Container.Size = UDim2.new(1, 0, 0, 18)
+    Container.BackgroundTransparency = 1
+    Container.Parent = parent
+    
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0, isTargetBox and 50 or 60, 1, 0)
+    Label.BackgroundTransparency = 1
+    Label.Text = name
+    Label.Font = Enum.Font.Code
+    Label.TextSize = 11
+    Label.TextColor3 = Constants.COLORS.Text
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Container
+    
+    local InputBox = Instance.new("TextBox")
+    InputBox.Size = UDim2.new(0, isTargetBox and 100 or 60, 0, 16)
+    InputBox.Position = UDim2.new(1, isTargetBox and -130 or -60, 0, 1)
+    InputBox.BackgroundColor3 = Constants.COLORS.InputBg
+    InputBox.BorderSizePixel = 0
+    InputBox.Font = Enum.Font.Code
+    InputBox.TextSize = 10
+    InputBox.TextColor3 = Constants.COLORS.Primary
+    InputBox.Text = tostring(default)
+    InputBox.Parent = Container
+    
+    if isTargetBox then
+        local SelectBtn = Instance.new("TextButton")
+        SelectBtn.Size = UDim2.new(0, 25, 0, 16)
+        SelectBtn.Position = UDim2.new(1, -25, 0, 1)
+        SelectBtn.BackgroundColor3 = Constants.COLORS.Primary
+        SelectBtn.BorderSizePixel = 0
+        SelectBtn.Font = Enum.Font.Code
+        SelectBtn.TextSize = 9
+        SelectBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        SelectBtn.Text = "SEL"
+        SelectBtn.Parent = Container
+        
+        SelectBtn.MouseButton1Click:Connect(function()
+            GUIBuilder.EnableClickToTarget(InputBox)
+        end)
+    end
+    
+    InputBox.FocusLost:Connect(function()
+        callback(InputBox.Text)
+    end)
+end
+
+--// Hooks
+local function SetupHooks()
+    if not hookmetamethod then return end
+
+    local old_namecall
+    old_namecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local args = {...}
+        local method = getnamecallmethod()
+        
+        if Config.Enabled and State.CurrentTarget and method == "Raycast" and not checkcaller() then
+            if typeof(args[1]) == "Vector3" and typeof(args[2]) == "Vector3" then
+                local origin = args[1]
+                local direction = args[2]
+                local rayLength = direction.Magnitude
+                
+                local distanceFromCamera = (origin - Camera.CFrame.Position).Magnitude
+                
+                if rayLength > 10 or distanceFromCamera < 3 then
+                    if Config.MissChance > 0 and math.random(1, 100) <= Config.MissChance then
+                        return old_namecall(self, unpack(args))
+                    end
+                    
+                    -- Always target Head
+                    local targetPart = State.CurrentTarget.Character.Head
+                    
+                    args[2] = (targetPart.Position - origin).Unit * rayLength
+                    return old_namecall(self, unpack(args))
                 end
             end
-            
-            for i = 1, math.min(#enemies, self.MaxLines) do
-                local player = enemies[i]
-                if not self.Beams[player] then self:CreateBeamForPlayer(player, i) end
-                self:UpdateLinePosition(player)
-            end
-            
-            for player in pairs(self.Beams) do
-                if not table.find(enemies, player) then self:ClearLine(player) end
-            end
         end
-        
-        self:ApplyTilt()
-    end)
-    
-    Services.Players.PlayerRemoving:Connect(function(player)
-        self:ClearLine(player)
-        self:RemoveJumpESP(player)
-    end)
-    
-    Services.UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed then return end
-        if input.KeyCode == self.TiltHotkey then self.AutoTiltEnabled = not self.AutoTiltEnabled end
-    end)
-    
-    for _, player in ipairs(Services.Players:GetPlayers()) do
-        self:SetupPlayerJumpESP(player)
-    end
-    
-    Services.Players.PlayerAdded:Connect(function(player)
-        self:SetupPlayerJumpESP(player)
+        return old_namecall(self, ...)
     end)
 end
 
-function VisualHelpers:Initialize(tab)
-    tab:CreateSection("Directional Lines")
+--// Initialize
+local function Initialize()
+    Cleanup()
+    local ScreenGui = GUIBuilder.CreateScreenGui()
+    local FOVRing = GUIBuilder.CreateFOVRing(ScreenGui)
+    local MainFrame = GUIBuilder.CreateMainFrame(ScreenGui)
+    GUIBuilder.MakeDraggable(MainFrame)
     
-    tab:CreateToggle({
-        Name = "Enable Lines",
-        CurrentValue = self.LinesEnabled,
-        Callback = function(val)
-            self.LinesEnabled = val
-            if not val then
-                for player, data in pairs(self.Beams) do self:ClearLine(player) end
-            end
+    -- Group Box 1: Toggles
+    local TogglesGroup = GUIBuilder.CreateGroupBox(MainFrame, "TOGGLES", 
+        UDim2.new(0, 10, 0, 35), UDim2.new(0, 185, 0, 145))
+    
+    GUIBuilder.CreateCheckbox(TogglesGroup, "Enabled", Config.Enabled, function(v) Config.Enabled = v end)
+    GUIBuilder.CreateCheckbox(TogglesGroup, "Show FOV", Config.ShowFOV, function(v) Config.ShowFOV = v end)
+    GUIBuilder.CreateCheckbox(TogglesGroup, "Follow Mouse", Config.FollowMouse, function(v) Config.FollowMouse = v end)
+    GUIBuilder.CreateCheckbox(TogglesGroup, "Team Check", Config.TeamCheck, function(v) Config.TeamCheck = v end)
+    GUIBuilder.CreateCheckbox(TogglesGroup, "Wall Check", Config.WallCheck, function(v) Config.WallCheck = v end)
+    
+    -- Group Box 2: Config
+    local ConfigGroup = GUIBuilder.CreateGroupBox(MainFrame, "CONFIG", 
+        UDim2.new(0, 205, 0, 35), UDim2.new(0, 185, 0, 145))
+    
+    GUIBuilder.CreateSlider(ConfigGroup, "FOV Radius", Constants.LIMITS.FOVRadiusMin, 
+        Constants.LIMITS.FOVRadiusMax, Config.FOVRadius, function(v) Config.FOVRadius = v end)
+    
+    GUIBuilder.CreateSlider(ConfigGroup, "Max Distance", Constants.LIMITS.MaxDistanceMin, 
+        Constants.LIMITS.MaxDistanceMax, Config.MaxDistance, function(v) Config.MaxDistance = v end)
+    
+    GUIBuilder.CreateSlider(ConfigGroup, "Miss Chance %", Constants.LIMITS.MissChanceMin, 
+        Constants.LIMITS.MissChanceMax, Config.MissChance, function(v) Config.MissChance = v end)
+    
+    -- Group Box 3: Target
+    local TargetGroup = GUIBuilder.CreateGroupBox(MainFrame, "TARGET", 
+        UDim2.new(0, 10, 0, 190), UDim2.new(0, 380, 0, 45))
+    
+    GUIBuilder.CreateTextbox(TargetGroup, "Username", Config.TargetUsername, 
+        function(v) Config.TargetUsername = v end, true)
+    
+    -- Main Loop
+    local RunConnection = RunService.RenderStepped:Connect(function()
+        local OriginPos = GetFOVPosition()
+        
+        if State.FOVRingObj then
+            State.FOVRingObj.Visible = Config.ShowFOV
+            State.FOVRingObj.Size = UDim2.new(0, Config.FOVRadius * 2, 0, Config.FOVRadius * 2)
+            State.FOVRingObj.Position = UDim2.new(0, OriginPos.X, 0, OriginPos.Y)
         end
-    })
-    
-    tab:CreateSlider({
-        Name = "Line Distance",
-        Range = {10, 100},
-        Increment = 10,
-        CurrentValue = self.LineDistance,
-        Suffix = " studs",
-        Callback = function(val) self.LineDistance = val end
-    })
-    
-    tab:CreateSection("Auto Tilt")
-    
-    tab:CreateToggle({
-        Name = "Auto Tilt",
-        CurrentValue = self.AutoTiltEnabled,
-        Callback = function(val) self.AutoTiltEnabled = val end
-    })
-    
-    tab:CreateInput({
-        Name = "Key Toggle (PC)",
-        CurrentValue = "Z",
-        PlaceholderText = "Ex: Z",
-        RemoveTextAfterFocusLost = true,
-        Flag = "TiltKeyInput",
-        Callback = function(text)
-            text = text:upper()
-            local key = Enum.KeyCode[text]
-            if key then self.TiltHotkey = key end
+        
+        if Config.Enabled then
+            local target = GetClosestPlayerToCursor()
+            Highlight.Update(target)
+        else
+            Highlight.Update(nil)
         end
-    })
+    end)
+    AddConnection("MainLoop", RunConnection)
     
-    tab:CreateParagraph({
-        Title = "How to use",
-        Content = "Auto-steers in air based on camera direction."
-    })
-    
-    tab:CreateSection("Enemy Detection")
-    
-    tab:CreateToggle({
-        Name = "Enemy Jump ESP",
-        CurrentValue = self.JumpESPEnabled,
-        Callback = function(val)
-            self.JumpESPEnabled = val
-            if not val then
-                for player in pairs(self.JumpHighlights) do self:RemoveJumpESP(player) end
-            end
-        end
-    })
-    
-    self:SetupListeners()
+    SetupHooks()
 end
 
--- Section 6: Main
-Services.CoreGui.ChildAdded:Connect(function(child)
-    if child:IsA("ScreenGui") and child.Name == "ErrorPrompt" then
-        task.wait(2)
-        Services.TeleportService:Teleport(game.PlaceId, LocalPlayer)
-    end
-end)
-
-local GameTab = UIManager.Window:CreateTab("Game", "flame")
-local CharTab = UIManager.Window:CreateTab("Character", "user-round")
-local VisualTab = UIManager.Window:CreateTab("Visual Helpers", "eye")
-
-HitboxModule:Initialize(GameTab)
-CharacterModule:Initialize(CharTab)
-VisualHelpers:Initialize(VisualTab)
-
-Services.UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    
-    if input.KeyCode == Enum.KeyCode.P then
-        HitboxModule.Enabled = false
-        HitboxModule:ClearAllHitboxes()
-        
-        CharacterModule.DirectionalJump = false
-        CharacterModule.AirMovement = false
-        CharacterModule:CloneESPCleanup()
-        
-        VisualHelpers.LinesEnabled = false
-        for player in pairs(VisualHelpers.Beams) do VisualHelpers:ClearLine(player) end
-        
-        VisualHelpers.AutoTiltEnabled = false
-        VisualHelpers.JumpESPEnabled = false
-        for player in pairs(VisualHelpers.JumpHighlights) do VisualHelpers:RemoveJumpESP(player) end
-        
-        UIManager:Notify("PANIC MODE", "All features disabled", "skull")
-    end
-end)
-
-UIManager:Notify(
-    "ZeckHub v2.1 Loaded",
-    "Press " .. tostring(CONFIG.UIKey) .. " to toggle interface\nP = Panic Mode",
-    "check"
-)
-
--- Section 7: Cleanup
-local function CleanupAll()
-    HitboxModule:ClearAllHitboxes()
-    CharacterModule:CloneESPCleanup()
-    
-    for player in pairs(VisualHelpers.Beams) do VisualHelpers:ClearLine(player) end
-    for player in pairs(VisualHelpers.JumpHighlights) do VisualHelpers:RemoveJumpESP(player) end
-    
-    warn("ZeckHub: Cleanup complete")
-end
-
-game:BindToClose(function() CleanupAll() end)
+--// Start
+Initialize()
