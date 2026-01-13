@@ -46,7 +46,7 @@ local Config = {
     MaxDistance = 1000,
     TargetUsername = "",
     MissChance = 0,
-    HitPart = "Head", -- Always Head
+    HitPart = "Head",
 }
 
 local Visual = {
@@ -272,14 +272,13 @@ function GUIBuilder.CreateMainFrame(parent)
     Stroke.Thickness = 1
     Stroke.Parent = MainFrame
     
-    -- Title Bar
     local TitleBar = Instance.new("Frame")
     TitleBar.Size = UDim2.new(1, 0, 0, 30)
     TitleBar.BackgroundTransparency = 1
     TitleBar.Parent = MainFrame
     
     local TitleLabel = Instance.new("TextLabel")
-    TitleLabel.Size = UDim2.new(1, -60, 1, 0)
+    TitleLabel.Size = UDim2.new(1, -10, 1, 0)
     TitleLabel.Position = UDim2.new(0, 10, 0, 0)
     TitleLabel.BackgroundTransparency = 1
     TitleLabel.Text = "SILENT AIM"
@@ -288,28 +287,6 @@ function GUIBuilder.CreateMainFrame(parent)
     TitleLabel.TextColor3 = Constants.COLORS.Text
     TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
     TitleLabel.Parent = TitleBar
-    
-    local MinimizeBtn = Instance.new("TextButton")
-    MinimizeBtn.Size = UDim2.new(0, 20, 0, 20)
-    MinimizeBtn.Position = UDim2.new(1, -30, 0, 5)
-    MinimizeBtn.BackgroundColor3 = Constants.COLORS.InputBg
-    MinimizeBtn.Text = "_"
-    MinimizeBtn.Font = Enum.Font.Code
-    MinimizeBtn.TextSize = 14
-    MinimizeBtn.TextColor3 = Constants.COLORS.Text
-    MinimizeBtn.BorderSizePixel = 0
-    MinimizeBtn.Parent = TitleBar
-    
-    MinimizeBtn.MouseButton1Click:Connect(function()
-        State.GUIVisible = not State.GUIVisible
-        if State.GUIVisible then
-            MainFrame.Size = UDim2.new(0, Constants.GUI_SIZE.X, 0, Constants.GUI_SIZE.Y)
-            MinimizeBtn.Text = "_"
-        else
-            MainFrame.Size = UDim2.new(0, Constants.GUI_SIZE.X, 0, 30)
-            MinimizeBtn.Text = "+"
-        end
-    end)
 
     return MainFrame
 end
@@ -643,7 +620,6 @@ local function SetupHooks()
                         return old_namecall(self, unpack(args))
                     end
                     
-                    -- Always target Head
                     local targetPart = State.CurrentTarget.Character.Head
                     
                     args[2] = (targetPart.Position - origin).Unit * rayLength
@@ -663,7 +639,6 @@ local function Initialize()
     local MainFrame = GUIBuilder.CreateMainFrame(ScreenGui)
     GUIBuilder.MakeDraggable(MainFrame)
     
-    -- Group Box 1: Toggles
     local TogglesGroup = GUIBuilder.CreateGroupBox(MainFrame, "TOGGLES", 
         UDim2.new(0, 10, 0, 35), UDim2.new(0, 185, 0, 145))
     
@@ -673,7 +648,6 @@ local function Initialize()
     GUIBuilder.CreateCheckbox(TogglesGroup, "Team Check", Config.TeamCheck, function(v) Config.TeamCheck = v end)
     GUIBuilder.CreateCheckbox(TogglesGroup, "Wall Check", Config.WallCheck, function(v) Config.WallCheck = v end)
     
-    -- Group Box 2: Config
     local ConfigGroup = GUIBuilder.CreateGroupBox(MainFrame, "CONFIG", 
         UDim2.new(0, 205, 0, 35), UDim2.new(0, 185, 0, 145))
     
@@ -686,14 +660,12 @@ local function Initialize()
     GUIBuilder.CreateSlider(ConfigGroup, "Miss Chance %", Constants.LIMITS.MissChanceMin, 
         Constants.LIMITS.MissChanceMax, Config.MissChance, function(v) Config.MissChance = v end)
     
-    -- Group Box 3: Target
     local TargetGroup = GUIBuilder.CreateGroupBox(MainFrame, "TARGET", 
         UDim2.new(0, 10, 0, 190), UDim2.new(0, 380, 0, 45))
     
     GUIBuilder.CreateTextbox(TargetGroup, "Username", Config.TargetUsername, 
         function(v) Config.TargetUsername = v end, true)
     
-    -- Main Loop
     local RunConnection = RunService.RenderStepped:Connect(function()
         local OriginPos = GetFOVPosition()
         
@@ -715,5 +687,4 @@ local function Initialize()
     SetupHooks()
 end
 
---// Start
 Initialize()
