@@ -12,7 +12,7 @@ local Mouse = LocalPlayer:GetMouse()
 
 local Constants = {
     GUI_NAME = "FOVGui",
-    GUI_SIZE = Vector2.new(400, 265),
+    GUI_SIZE = Vector2.new(400, 200),
     
     COLORS = {
         Background = Color3.fromRGB(20, 20, 25),
@@ -44,7 +44,6 @@ local Config = {
     ShowFOV = true,
     FOVRadius = 150,
     MaxDistance = 1000,
-    TargetUsername = "",
     MissChance = 0,
     HitPart = "Head",
 }
@@ -62,7 +61,6 @@ local State = {
     CurrentTarget = nil,
     CurrentHighlight = nil,
     Connections = {},
-    ClickToTargetMode = false,
     FOVRingObj = nil,
     GUIVisible = true,
 }
@@ -119,26 +117,6 @@ end
 --// Target Logic
 local function GetClosestPlayerToCursor()
     if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return nil end
-    
-    if Config.TargetUsername ~= "" then
-        for _, Player in pairs(Players:GetPlayers()) do
-            if Player ~= LocalPlayer then
-                local matchesUsername = string.find(string.lower(Player.Name), string.lower(Config.TargetUsername))
-                local matchesDisplay = string.find(string.lower(Player.DisplayName), string.lower(Config.TargetUsername))
-                
-                if matchesUsername or matchesDisplay then
-                    if not Config.TeamCheck or Player.Team ~= LocalPlayer.Team then
-                        local Character = Player.Character
-                        if Character and Character:FindFirstChild("Head") and Character:FindFirstChild("Humanoid") and Character.Humanoid.Health > 0 then
-                            local ScreenPos, OnScreen = Camera:WorldToScreenPoint(Character.Head.Position)
-                            if OnScreen then return Player end
-                        end
-                    end
-                end
-            end
-        end
-        return nil
-    end
     
     local ClosestPlayer, ShortestDistance = nil, Config.FOVRadius
     local OriginPos = GetFOVPosition()
@@ -201,29 +179,6 @@ end
 
 --// GUI Builder
 local GUIBuilder = {}
-
-function GUIBuilder.EnableClickToTarget(targetTextbox)
-    State.ClickToTargetMode = true
-    Mouse.Icon = "rbxasset://textures/Cursors/Crosshair.png"
-    local connection
-    connection = Mouse.Button1Down:Connect(function()
-        local target = Mouse.Target
-        if target then
-            local character = target:FindFirstAncestorOfClass("Model")
-            if character then
-                local player = Players:GetPlayerFromCharacter(character)
-                if player and player ~= LocalPlayer then
-                    Config.TargetUsername = player.Name
-                    targetTextbox.Text = player.Name
-                    State.ClickToTargetMode = false
-                    Mouse.Icon = ""
-                    connection:Disconnect()
-                end
-            end
-        end
-    end)
-    AddConnection("ClickToTarget", connection)
-end
 
 function GUIBuilder.CreateScreenGui()
     local ScreenGui = Instance.new("ScreenGui")
@@ -549,55 +504,6 @@ function GUIBuilder.CreateCombobox(parent, name, options, default, callback)
     end)
 end
 
-function GUIBuilder.CreateTextbox(parent, name, default, callback, isTargetBox)
-    local Container = Instance.new("Frame")
-    Container.Size = UDim2.new(1, 0, 0, 18)
-    Container.BackgroundTransparency = 1
-    Container.Parent = parent
-    
-    local Label = Instance.new("TextLabel")
-    Label.Size = UDim2.new(0, isTargetBox and 50 or 60, 1, 0)
-    Label.BackgroundTransparency = 1
-    Label.Text = name
-    Label.Font = Enum.Font.Code
-    Label.TextSize = 11
-    Label.TextColor3 = Constants.COLORS.Text
-    Label.TextXAlignment = Enum.TextXAlignment.Left
-    Label.Parent = Container
-    
-    local InputBox = Instance.new("TextBox")
-    InputBox.Size = UDim2.new(0, isTargetBox and 100 or 60, 0, 16)
-    InputBox.Position = UDim2.new(1, isTargetBox and -130 or -60, 0, 1)
-    InputBox.BackgroundColor3 = Constants.COLORS.InputBg
-    InputBox.BorderSizePixel = 0
-    InputBox.Font = Enum.Font.Code
-    InputBox.TextSize = 10
-    InputBox.TextColor3 = Constants.COLORS.Primary
-    InputBox.Text = tostring(default)
-    InputBox.Parent = Container
-    
-    if isTargetBox then
-        local SelectBtn = Instance.new("TextButton")
-        SelectBtn.Size = UDim2.new(0, 25, 0, 16)
-        SelectBtn.Position = UDim2.new(1, -25, 0, 1)
-        SelectBtn.BackgroundColor3 = Constants.COLORS.Primary
-        SelectBtn.BorderSizePixel = 0
-        SelectBtn.Font = Enum.Font.Code
-        SelectBtn.TextSize = 9
-        SelectBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        SelectBtn.Text = "SEL"
-        SelectBtn.Parent = Container
-        
-        SelectBtn.MouseButton1Click:Connect(function()
-            GUIBuilder.EnableClickToTarget(InputBox)
-        end)
-    end
-    
-    InputBox.FocusLost:Connect(function()
-        callback(InputBox.Text)
-    end)
-end
-
 --// Hooks
 local function SetupHooks()
     if not hookmetamethod then return end
@@ -659,12 +565,6 @@ local function Initialize()
     
     GUIBuilder.CreateSlider(ConfigGroup, "Miss Chance %", Constants.LIMITS.MissChanceMin, 
         Constants.LIMITS.MissChanceMax, Config.MissChance, function(v) Config.MissChance = v end)
-    
-    local TargetGroup = GUIBuilder.CreateGroupBox(MainFrame, "TARGET", 
-        UDim2.new(0, 10, 0, 190), UDim2.new(0, 380, 0, 45))
-    
-    GUIBuilder.CreateTextbox(TargetGroup, "Username", Config.TargetUsername, 
-        function(v) Config.TargetUsername = v end, true)
     
     local RunConnection = RunService.RenderStepped:Connect(function()
         local OriginPos = GetFOVPosition()
