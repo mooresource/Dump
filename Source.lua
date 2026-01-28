@@ -3,37 +3,10 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-local Mouse = LocalPlayer:GetMouse()
-
-local Constants = {
-    GUI_NAME = "FOVGui",
-    GUI_SIZE = Vector2.new(400, 200),
-    
-    COLORS = {
-        Background = Color3.fromRGB(20, 20, 25),
-        GroupBox = Color3.fromRGB(30, 30, 35),
-        GroupBoxBorder = Color3.fromRGB(60, 60, 70),
-        Primary = Color3.fromRGB(100, 150, 255),
-        Success = Color3.fromRGB(100, 200, 120),
-        Text = Color3.fromRGB(200, 200, 210),
-        TextDim = Color3.fromRGB(140, 140, 150),
-        InputBg = Color3.fromRGB(25, 25, 30),
-    },
-    
-    LIMITS = {
-        FOVRadiusMin = 10,
-        FOVRadiusMax = 800,
-        MaxDistanceMin = 100,
-        MaxDistanceMax = 10000,
-        MissChanceMin = 0,
-        MissChanceMax = 100,
-    }
-}
 
 --// Configuration
 local Config = {
@@ -45,48 +18,29 @@ local Config = {
     FOVRadius = 150,
     MaxDistance = 1000,
     MissChance = 0,
-    HitPart = "Head",
 }
 
-local Visual = {
-    FOVColor = Color3.fromRGB(100, 150, 255),
-    FOVThickness = 2,
-    HighlightFill = Color3.fromRGB(255, 107, 107),
-    HighlightOutline = Color3.fromRGB(100, 150, 255),
-    FillTransparency = 0.6,
-    OutlineTransparency = 0,
+--// Minimalist Theme
+local Theme = {
+    Bg = Color3.fromRGB(18, 18, 18),
+    BgLight = Color3.fromRGB(28, 28, 28),
+    Border = Color3.fromRGB(45, 45, 45),
+    Text = Color3.fromRGB(220, 220, 220),
+    TextDim = Color3.fromRGB(130, 130, 130),
+    Accent = Color3.fromRGB(255, 255, 255),
+    AccentDim = Color3.fromRGB(100, 100, 100),
 }
 
+--// State
 local State = {
     CurrentTarget = nil,
     CurrentHighlight = nil,
+    FOVRing = nil,
+    GUI = nil,
     Connections = {},
-    FOVRingObj = nil,
-    GUIVisible = true,
 }
 
---// Cleanup
-local function Cleanup()
-    local oldGui = PlayerGui:FindFirstChild(Constants.GUI_NAME)
-    if oldGui then oldGui:Destroy() end
-    
-    if State.CurrentHighlight then 
-        State.CurrentHighlight:Destroy()
-        State.CurrentHighlight = nil
-    end
-
-    for _, connection in pairs(State.Connections) do
-        if connection then connection:Disconnect() end
-    end
-    State.Connections = {}
-end
-
---// Utility Functions
-local function AddConnection(name, connection)
-    if State.Connections[name] then State.Connections[name]:Disconnect() end
-    State.Connections[name] = connection
-end
-
+--// Utilities
 local function Clamp(value, min, max)
     return math.max(min, math.min(max, value))
 end
@@ -98,44 +52,42 @@ local function IsVisible(targetPart)
     return #parts == 0
 end
 
-local function TweenObject(obj, props, duration)
-    local tween = TweenService:Create(obj, TweenInfo.new(duration or 0.2, Enum.EasingStyle.Quad), props)
-    tween:Play()
-    return tween
-end
-
 local function GetFOVPosition()
     if Config.FollowMouse then
         local mousePos = UserInputService:GetMouseLocation()
-        return Vector2.new(math.floor(mousePos.X + 0.5), math.floor(mousePos.Y + 0.5))
+        return Vector2.new(mousePos.X, mousePos.Y)
     else
-        local viewport = Camera.ViewportSize
-        return Vector2.new(math.floor(viewport.X / 2 + 0.5), math.floor(viewport.Y / 2 + 0.5))
+        return Camera.ViewportSize / 2
     end
 end
 
---// Target Logic
-local function GetClosestPlayerToCursor()
-    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return nil end
+--// Target System
+local function GetClosestTarget()
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then 
+        return nil 
+    end
     
-    local ClosestPlayer, ShortestDistance = nil, Config.FOVRadius
-    local OriginPos = GetFOVPosition()
+    local closestPlayer, shortestDist = nil, Config.FOVRadius
+    local fovPos = GetFOVPosition()
     
-    for _, Player in pairs(Players:GetPlayers()) do
-        if Player ~= LocalPlayer then
-            if not Config.TeamCheck or Player.Team ~= LocalPlayer.Team then
-                local Character = Player.Character
-                if Character and Character:FindFirstChild("Head") and Character:FindFirstChild("Humanoid") and Character.Humanoid.Health > 0 then
-                    local Head = Character.Head
-                    local Root = Character.HumanoidRootPart
-                    local Distance = (LocalPlayer.Character.HumanoidRootPart.Position - Root.Position).Magnitude
-                    
-                    if Distance <= Config.MaxDistance and IsVisible(Head) then
-                        local ScreenPos, OnScreen = Camera:WorldToScreenPoint(Head.Position)
-                        if OnScreen then
-                            local ScreenDist = (Vector2.new(ScreenPos.X, ScreenPos.Y) - OriginPos).Magnitude
-                            if ScreenDist < ShortestDistance then
-                                ClosestPlayer, ShortestDistance = Player, ScreenDist
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            if not Config.TeamCheck or player.Team ~= LocalPlayer.Team then
+                local char = player.Character
+                if char and char:FindFirstChild("Head") and char:FindFirstChild("Humanoid") then
+                    if char.Humanoid.Health > 0 then
+                        local head = char.Head
+                        local root = char.HumanoidRootPart
+                        local distance = (LocalPlayer.Character.HumanoidRootPart.Position - root.Position).Magnitude
+                        
+                        if distance <= Config.MaxDistance and IsVisible(head) then
+                            local screenPos, onScreen = Camera:WorldToScreenPoint(head.Position)
+                            if onScreen then
+                                local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - fovPos).Magnitude
+                                if screenDist < shortestDist then
+                                    closestPlayer = player
+                                    shortestDist = screenDist
+                                end
                             end
                         end
                     end
@@ -143,281 +95,215 @@ local function GetClosestPlayerToCursor()
             end
         end
     end
-    return ClosestPlayer
+    
+    return closestPlayer
 end
 
 --// Highlight System
-local Highlight = {}
-function Highlight.Apply(player)
+local function CreateHighlight(player)
     if not player or not player.Character then return nil end
-    local h = Instance.new("Highlight")
-    h.FillColor = Visual.HighlightFill
-    h.OutlineColor = Visual.HighlightOutline
-    h.FillTransparency = Visual.FillTransparency
-    h.OutlineTransparency = Visual.OutlineTransparency
-    h.Adornee = player.Character 
-    h.Parent = PlayerGui 
-    return h
-end
-
-function Highlight.Remove()
-    if State.CurrentHighlight then 
-        State.CurrentHighlight:Destroy()
-        State.CurrentHighlight = nil 
+    
+    local highlight = Instance.new("Highlight")
+    highlight.Adornee = player.Character
+    highlight.FillTransparency = 0.7
+    highlight.OutlineTransparency = 0
+    
+    if player.Team and player.Team.TeamColor then
+        local teamColor = player.Team.TeamColor.Color
+        highlight.FillColor = teamColor
+        highlight.OutlineColor = teamColor
+    else
+        highlight.FillColor = Theme.Accent
+        highlight.OutlineColor = Theme.Accent
     end
+    
+    highlight.Parent = PlayerGui
+    return highlight
 end
 
-function Highlight.Update(newTarget)
+local function UpdateHighlight(newTarget)
     if newTarget ~= State.CurrentTarget then
-        Highlight.Remove()
+        if State.CurrentHighlight then
+            State.CurrentHighlight:Destroy()
+            State.CurrentHighlight = nil
+        end
+        
         if newTarget then
-            State.CurrentHighlight = Highlight.Apply(newTarget)
+            State.CurrentHighlight = CreateHighlight(newTarget)
         end
+        
+        State.CurrentTarget = newTarget
     end
-    State.CurrentTarget = newTarget
 end
 
---// GUI Builder
-local GUIBuilder = {}
+--// Minimalist GUI
+local GUI = {}
 
-function GUIBuilder.CreateScreenGui()
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = Constants.GUI_NAME
-    ScreenGui.ResetOnSpawn = false
-    ScreenGui.IgnoreGuiInset = true
-    ScreenGui.Parent = PlayerGui
-    return ScreenGui
+function GUI.New(class, props)
+    local element = Instance.new(class)
+    for prop, value in pairs(props) do
+        element[prop] = value
+    end
+    return element
 end
 
-function GUIBuilder.CreateFOVRing(parent)
-    local FOVRing = Instance.new("Frame")
-    FOVRing.Size = UDim2.new(0, Config.FOVRadius * 2, 0, Config.FOVRadius * 2)
-    FOVRing.AnchorPoint = Vector2.new(0.5, 0.5)
-    FOVRing.BackgroundTransparency = 1
-    FOVRing.Parent = parent
+function GUI.CreateMain()
+    local screenGui = GUI.New("ScreenGui", {
+        Name = "SilentAim",
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        Parent = PlayerGui
+    })
+    State.GUI = screenGui
     
-    local Stroke = Instance.new("UIStroke")
-    Stroke.Thickness = Visual.FOVThickness
-    Stroke.Color = Visual.FOVColor
-    Stroke.Transparency = 0.3
-    Stroke.Parent = FOVRing
+    local main = GUI.New("Frame", {
+        Size = UDim2.new(0, 240, 0, 320),
+        Position = UDim2.new(0, 20, 0, 20),
+        BackgroundColor3 = Theme.Bg,
+        BorderColor3 = Theme.Border,
+        BorderSizePixel = 1,
+        Parent = screenGui
+    })
     
-    local Corner = Instance.new("UICorner")
-    Corner.CornerRadius = UDim.new(1, 0)
-    Corner.Parent = FOVRing
+    local content = GUI.New("Frame", {
+        Size = UDim2.new(1, -20, 1, -40),
+        Position = UDim2.new(0, 10, 0, 30),
+        BackgroundTransparency = 1,
+        Parent = main
+    })
     
-    State.FOVRingObj = FOVRing
-    return FOVRing
+    GUI.New("UIListLayout", {
+        Padding = UDim.new(0, 10),
+        Parent = content
+    })
+    
+    local title = GUI.New("TextLabel", {
+        Size = UDim2.new(1, -20, 0, 20),
+        Position = UDim2.new(0, 10, 0, 5),
+        BackgroundTransparency = 1,
+        Text = "SILENT AIM",
+        Font = Enum.Font.GothamBold,
+        TextSize = 11,
+        TextColor3 = Theme.Text,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = main
+    })
+    
+    GUI.MakeDraggable(main)
+    return content
 end
 
-function GUIBuilder.CreateMainFrame(parent)
-    local MainFrame = Instance.new("Frame")
-    MainFrame.Size = UDim2.new(0, Constants.GUI_SIZE.X, 0, Constants.GUI_SIZE.Y)
-    MainFrame.Position = UDim2.new(0, 30, 0, 120)
-    MainFrame.BackgroundColor3 = Constants.COLORS.Background
-    MainFrame.BorderSizePixel = 0
-    MainFrame.Parent = parent
+function GUI.Toggle(parent, name, default, callback)
+    local container = GUI.New("Frame", {
+        Size = UDim2.new(1, 0, 0, 20),
+        BackgroundTransparency = 1,
+        Parent = parent
+    })
     
-    local Corner = Instance.new("UICorner")
-    Corner.CornerRadius = UDim.new(0, 4)
-    Corner.Parent = MainFrame
+    local label = GUI.New("TextLabel", {
+        Size = UDim2.new(1, -30, 1, 0),
+        BackgroundTransparency = 1,
+        Text = name,
+        Font = Enum.Font.Gotham,
+        TextSize = 11,
+        TextColor3 = Theme.Text,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = container
+    })
     
-    local Stroke = Instance.new("UIStroke")
-    Stroke.Color = Constants.COLORS.GroupBoxBorder
-    Stroke.Thickness = 1
-    Stroke.Parent = MainFrame
+    local box = GUI.New("Frame", {
+        Size = UDim2.new(0, 12, 0, 12),
+        Position = UDim2.new(1, -12, 0, 4),
+        BackgroundColor3 = default and Theme.Accent or Theme.BgLight,
+        BorderColor3 = Theme.Border,
+        BorderSizePixel = 1,
+        Parent = container
+    })
     
-    local TitleBar = Instance.new("Frame")
-    TitleBar.Size = UDim2.new(1, 0, 0, 30)
-    TitleBar.BackgroundTransparency = 1
-    TitleBar.Parent = MainFrame
+    local button = GUI.New("TextButton", {
+        Size = UDim2.new(1, 20, 1, 0),
+        Position = UDim2.new(0, -10, 0, 0),
+        BackgroundTransparency = 1,
+        Text = "",
+        Parent = container
+    })
     
-    local TitleLabel = Instance.new("TextLabel")
-    TitleLabel.Size = UDim2.new(1, -10, 1, 0)
-    TitleLabel.Position = UDim2.new(0, 10, 0, 0)
-    TitleLabel.BackgroundTransparency = 1
-    TitleLabel.Text = "SILENT AIM"
-    TitleLabel.Font = Enum.Font.Code
-    TitleLabel.TextSize = 14
-    TitleLabel.TextColor3 = Constants.COLORS.Text
-    TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    TitleLabel.Parent = TitleBar
-
-    return MainFrame
-end
-
-function GUIBuilder.CreateGroupBox(parent, title, position, size)
-    local GroupBox = Instance.new("Frame")
-    GroupBox.Size = size
-    GroupBox.Position = position
-    GroupBox.BackgroundColor3 = Constants.COLORS.GroupBox
-    GroupBox.BorderSizePixel = 0
-    GroupBox.Parent = parent
-    
-    local Corner = Instance.new("UICorner")
-    Corner.CornerRadius = UDim.new(0, 3)
-    Corner.Parent = GroupBox
-    
-    local Stroke = Instance.new("UIStroke")
-    Stroke.Color = Constants.COLORS.GroupBoxBorder
-    Stroke.Thickness = 1
-    Stroke.Parent = GroupBox
-    
-    local TitleLabel = Instance.new("TextLabel")
-    TitleLabel.Size = UDim2.new(1, -10, 0, 20)
-    TitleLabel.Position = UDim2.new(0, 5, 0, 2)
-    TitleLabel.BackgroundTransparency = 1
-    TitleLabel.Text = title
-    TitleLabel.Font = Enum.Font.Code
-    TitleLabel.TextSize = 12
-    TitleLabel.TextColor3 = Constants.COLORS.TextDim
-    TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    TitleLabel.Parent = GroupBox
-    
-    local ContentFrame = Instance.new("Frame")
-    ContentFrame.Size = UDim2.new(1, -10, 1, -25)
-    ContentFrame.Position = UDim2.new(0, 5, 0, 22)
-    ContentFrame.BackgroundTransparency = 1
-    ContentFrame.Parent = GroupBox
-    
-    local UIList = Instance.new("UIListLayout")
-    UIList.Padding = UDim.new(0, 5)
-    UIList.Parent = ContentFrame
-    
-    return ContentFrame
-end
-
-function GUIBuilder.MakeDraggable(frame)
-    local dragging, dragInput, dragStart, startPos
-    
-    frame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = frame.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then dragging = false end
-            end)
-        end
-    end)
-    
-    frame.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
-    end)
-    
-    UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            local delta = input.Position - dragStart
-            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
-end
-
-function GUIBuilder.CreateCheckbox(parent, name, default, callback)
-    local Container = Instance.new("Frame")
-    Container.Size = UDim2.new(1, 0, 0, 18)
-    Container.BackgroundTransparency = 1
-    Container.Parent = parent
-    
-    local Checkbox = Instance.new("TextButton")
-    Checkbox.Size = UDim2.new(0, 14, 0, 14)
-    Checkbox.Position = UDim2.new(0, 0, 0, 2)
-    Checkbox.BackgroundColor3 = Constants.COLORS.InputBg
-    Checkbox.BorderSizePixel = 0
-    Checkbox.Text = ""
-    Checkbox.Parent = Container
-    
-    local CheckStroke = Instance.new("UIStroke")
-    CheckStroke.Color = default and Constants.COLORS.Primary or Constants.COLORS.GroupBoxBorder
-    CheckStroke.Thickness = 1
-    CheckStroke.Parent = Checkbox
-    
-    local Checkmark = Instance.new("TextLabel")
-    Checkmark.Size = UDim2.new(1, 0, 1, 0)
-    Checkmark.BackgroundTransparency = 1
-    Checkmark.Text = default and "✓" or ""
-    Checkmark.Font = Enum.Font.Code
-    Checkmark.TextSize = 12
-    Checkmark.TextColor3 = Constants.COLORS.Primary
-    Checkmark.Parent = Checkbox
-    
-    local Label = Instance.new("TextLabel")
-    Label.Size = UDim2.new(1, -20, 1, 0)
-    Label.Position = UDim2.new(0, 20, 0, 0)
-    Label.BackgroundTransparency = 1
-    Label.Text = name
-    Label.Font = Enum.Font.Code
-    Label.TextSize = 11
-    Label.TextColor3 = Constants.COLORS.Text
-    Label.TextXAlignment = Enum.TextXAlignment.Left
-    Label.Parent = Container
-    
-    Checkbox.MouseButton1Click:Connect(function()
+    button.MouseButton1Click:Connect(function()
         default = not default
-        Checkmark.Text = default and "✓" or ""
-        CheckStroke.Color = default and Constants.COLORS.Primary or Constants.COLORS.GroupBoxBorder
         callback(default)
+        box.BackgroundColor3 = default and Theme.Accent or Theme.BgLight
     end)
 end
 
-function GUIBuilder.CreateSlider(parent, name, min, max, default, callback)
-    local Container = Instance.new("Frame")
-    Container.Size = UDim2.new(1, 0, 0, 35)
-    Container.BackgroundTransparency = 1
-    Container.Parent = parent
+function GUI.Slider(parent, name, min, max, default, callback)
+    local container = GUI.New("Frame", {
+        Size = UDim2.new(1, 0, 0, 35),
+        BackgroundTransparency = 1,
+        Parent = parent
+    })
     
-    local Label = Instance.new("TextLabel")
-    Label.Size = UDim2.new(0.6, 0, 0, 15)
-    Label.BackgroundTransparency = 1
-    Label.Text = name
-    Label.Font = Enum.Font.Code
-    Label.TextSize = 11
-    Label.TextColor3 = Constants.COLORS.Text
-    Label.TextXAlignment = Enum.TextXAlignment.Left
-    Label.Parent = Container
+    local labelFrame = GUI.New("Frame", {
+        Size = UDim2.new(1, 0, 0, 15),
+        BackgroundTransparency = 1,
+        Parent = container
+    })
     
-    local ValueBox = Instance.new("TextBox")
-    ValueBox.Size = UDim2.new(0, 50, 0, 15)
-    ValueBox.Position = UDim2.new(1, -50, 0, 0)
-    ValueBox.BackgroundColor3 = Constants.COLORS.InputBg
-    ValueBox.BorderSizePixel = 0
-    ValueBox.Font = Enum.Font.Code
-    ValueBox.TextSize = 10
-    ValueBox.TextColor3 = Constants.COLORS.Primary
-    ValueBox.Text = tostring(default)
-    ValueBox.Parent = Container
+    local label = GUI.New("TextLabel", {
+        Size = UDim2.new(0.65, 0, 1, 0),
+        BackgroundTransparency = 1,
+        Text = name,
+        Font = Enum.Font.Gotham,
+        TextSize = 11,
+        TextColor3 = Theme.Text,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = labelFrame
+    })
     
-    local SliderBg = Instance.new("Frame")
-    SliderBg.Size = UDim2.new(1, 0, 0, 4)
-    SliderBg.Position = UDim2.new(0, 0, 1, -8)
-    SliderBg.BackgroundColor3 = Constants.COLORS.InputBg
-    SliderBg.BorderSizePixel = 0
-    SliderBg.Parent = Container
+    local value = GUI.New("TextLabel", {
+        Size = UDim2.new(0.35, 0, 1, 0),
+        Position = UDim2.new(0.65, 0, 0, 0),
+        BackgroundTransparency = 1,
+        Text = tostring(default),
+        Font = Enum.Font.GothamMedium,
+        TextSize = 11,
+        TextColor3 = Theme.TextDim,
+        TextXAlignment = Enum.TextXAlignment.Right,
+        Parent = labelFrame
+    })
     
-    local SliderFill = Instance.new("Frame")
-    SliderFill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
-    SliderFill.BackgroundColor3 = Constants.COLORS.Primary
-    SliderFill.BorderSizePixel = 0
-    SliderFill.Parent = SliderBg
+    local track = GUI.New("Frame", {
+        Size = UDim2.new(1, 0, 0, 2),
+        Position = UDim2.new(0, 0, 0, 25),
+        BackgroundColor3 = Theme.BgLight,
+        BorderSizePixel = 0,
+        Parent = container
+    })
+    
+    local fill = GUI.New("Frame", {
+        Size = UDim2.new((default - min) / (max - min), 0, 1, 0),
+        BackgroundColor3 = Theme.Accent,
+        BorderSizePixel = 0,
+        Parent = track
+    })
     
     local dragging = false
     
-    local function UpdateSlider(input)
-        local pos = math.clamp((input.Position.X - SliderBg.AbsolutePosition.X) / SliderBg.AbsoluteSize.X, 0, 1)
-        local value = math.floor(min + (max - min) * pos)
-        SliderFill.Size = UDim2.new(pos, 0, 1, 0)
-        ValueBox.Text = tostring(value)
-        callback(value)
+    local function update(input)
+        local pos = Clamp((input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+        local val = math.floor(min + (max - min) * pos)
+        fill.Size = UDim2.new(pos, 0, 1, 0)
+        value.Text = tostring(val)
+        callback(val)
     end
     
-    SliderBg.InputBegan:Connect(function(input)
+    track.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = true
-            UpdateSlider(input)
+            update(input)
         end
     end)
     
-    SliderBg.InputEnded:Connect(function(input)
+    track.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = false
         end
@@ -425,89 +311,86 @@ function GUIBuilder.CreateSlider(parent, name, min, max, default, callback)
     
     UserInputService.InputChanged:Connect(function(input)
         if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            UpdateSlider(input)
+            update(input)
         end
-    end)
-    
-    ValueBox.FocusLost:Connect(function()
-        local value = tonumber(ValueBox.Text) or default
-        value = Clamp(value, min, max)
-        ValueBox.Text = tostring(value)
-        SliderFill.Size = UDim2.new((value - min) / (max - min), 0, 1, 0)
-        callback(value)
     end)
 end
 
-function GUIBuilder.CreateCombobox(parent, name, options, default, callback)
-    local Container = Instance.new("Frame")
-    Container.Size = UDim2.new(1, 0, 0, 18)
-    Container.BackgroundTransparency = 1
-    Container.Parent = parent
+function GUI.Divider(parent)
+    GUI.New("Frame", {
+        Size = UDim2.new(1, 0, 0, 1),
+        BackgroundColor3 = Theme.Border,
+        BorderSizePixel = 0,
+        Parent = parent
+    })
+end
+
+function GUI.MakeDraggable(frame)
+    local dragging, dragInput, dragStart, startPos
     
-    local Label = Instance.new("TextLabel")
-    Label.Size = UDim2.new(0.5, 0, 1, 0)
-    Label.BackgroundTransparency = 1
-    Label.Text = name
-    Label.Font = Enum.Font.Code
-    Label.TextSize = 11
-    Label.TextColor3 = Constants.COLORS.Text
-    Label.TextXAlignment = Enum.TextXAlignment.Left
-    Label.Parent = Container
-    
-    local Dropdown = Instance.new("TextButton")
-    Dropdown.Size = UDim2.new(0, 80, 0, 16)
-    Dropdown.Position = UDim2.new(1, -80, 0, 1)
-    Dropdown.BackgroundColor3 = Constants.COLORS.InputBg
-    Dropdown.BorderSizePixel = 0
-    Dropdown.Font = Enum.Font.Code
-    Dropdown.TextSize = 10
-    Dropdown.TextColor3 = Constants.COLORS.Primary
-    Dropdown.Text = default
-    Dropdown.Parent = Container
-    
-    local isOpen = false
-    local OptionsFrame = Instance.new("Frame")
-    OptionsFrame.Size = UDim2.new(0, 80, 0, #options * 18)
-    OptionsFrame.Position = UDim2.new(1, -80, 1, 2)
-    OptionsFrame.BackgroundColor3 = Constants.COLORS.InputBg
-    OptionsFrame.BorderSizePixel = 0
-    OptionsFrame.Visible = false
-    OptionsFrame.ZIndex = 10
-    OptionsFrame.Parent = Container
-    
-    local OptionsList = Instance.new("UIListLayout")
-    OptionsList.Parent = OptionsFrame
-    
-    for _, option in ipairs(options) do
-        local OptionBtn = Instance.new("TextButton")
-        OptionBtn.Size = UDim2.new(1, 0, 0, 18)
-        OptionBtn.BackgroundColor3 = Constants.COLORS.GroupBox
-        OptionBtn.BorderSizePixel = 0
-        OptionBtn.Font = Enum.Font.Code
-        OptionBtn.TextSize = 10
-        OptionBtn.TextColor3 = Constants.COLORS.Text
-        OptionBtn.Text = option
-        OptionBtn.ZIndex = 11
-        OptionBtn.Parent = OptionsFrame
-        
-        OptionBtn.MouseButton1Click:Connect(function()
-            Dropdown.Text = option
-            OptionsFrame.Visible = false
-            isOpen = false
-            callback(option)
-        end)
-    end
-    
-    Dropdown.MouseButton1Click:Connect(function()
-        isOpen = not isOpen
-        OptionsFrame.Visible = isOpen
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
     end)
+    
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            dragInput = input
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+--// FOV Ring
+local function CreateFOVRing(parent)
+    local fov = GUI.New("Frame", {
+        Size = UDim2.new(0, Config.FOVRadius * 2, 0, Config.FOVRadius * 2),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Parent = parent
+    })
+    
+    GUI.New("UICorner", {
+        CornerRadius = UDim.new(1, 0),
+        Parent = fov
+    })
+    
+    GUI.New("UIStroke", {
+        Color = Theme.Accent,
+        Thickness = 1,
+        Transparency = 0,
+        Parent = fov
+    })
+    
+    State.FOVRing = fov
+    return fov
 end
 
 --// Hooks
 local function SetupHooks()
     if not hookmetamethod then return end
-
+    
     local old_namecall
     old_namecall = hookmetamethod(game, "__namecall", function(self, ...)
         local args = {...}
@@ -518,7 +401,6 @@ local function SetupHooks()
                 local origin = args[1]
                 local direction = args[2]
                 local rayLength = direction.Magnitude
-                
                 local distanceFromCamera = (origin - Camera.CFrame.Position).Magnitude
                 
                 if rayLength > 10 or distanceFromCamera < 3 then
@@ -527,64 +409,79 @@ local function SetupHooks()
                     end
                     
                     local targetPart = State.CurrentTarget.Character.Head
-                    
                     args[2] = (targetPart.Position - origin).Unit * rayLength
                     return old_namecall(self, unpack(args))
                 end
             end
         end
+        
         return old_namecall(self, ...)
     end)
+end
+
+--// Cleanup
+local function Cleanup()
+    if State.GUI then State.GUI:Destroy() end
+    if State.CurrentHighlight then State.CurrentHighlight:Destroy() end
+    for _, conn in pairs(State.Connections) do
+        if conn then conn:Disconnect() end
+    end
+    State.Connections = {}
 end
 
 --// Initialize
 local function Initialize()
     Cleanup()
-    local ScreenGui = GUIBuilder.CreateScreenGui()
-    local FOVRing = GUIBuilder.CreateFOVRing(ScreenGui)
-    local MainFrame = GUIBuilder.CreateMainFrame(ScreenGui)
-    GUIBuilder.MakeDraggable(MainFrame)
     
-    local TogglesGroup = GUIBuilder.CreateGroupBox(MainFrame, "TOGGLES", 
-        UDim2.new(0, 10, 0, 35), UDim2.new(0, 185, 0, 145))
+    -- Create GUI
+    local screenGui = GUI.New("ScreenGui", {
+        Name = "SilentAim",
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        Parent = PlayerGui
+    })
+    State.GUI = screenGui
     
-    GUIBuilder.CreateCheckbox(TogglesGroup, "Enabled", Config.Enabled, function(v) Config.Enabled = v end)
-    GUIBuilder.CreateCheckbox(TogglesGroup, "Show FOV", Config.ShowFOV, function(v) Config.ShowFOV = v end)
-    GUIBuilder.CreateCheckbox(TogglesGroup, "Follow Mouse", Config.FollowMouse, function(v) Config.FollowMouse = v end)
-    GUIBuilder.CreateCheckbox(TogglesGroup, "Team Check", Config.TeamCheck, function(v) Config.TeamCheck = v end)
-    GUIBuilder.CreateCheckbox(TogglesGroup, "Wall Check", Config.WallCheck, function(v) Config.WallCheck = v end)
+    -- FOV Ring
+    CreateFOVRing(screenGui)
     
-    local ConfigGroup = GUIBuilder.CreateGroupBox(MainFrame, "CONFIG", 
-        UDim2.new(0, 205, 0, 35), UDim2.new(0, 185, 0, 145))
+    -- Main GUI
+    local content = GUI.CreateMain()
     
-    GUIBuilder.CreateSlider(ConfigGroup, "FOV Radius", Constants.LIMITS.FOVRadiusMin, 
-        Constants.LIMITS.FOVRadiusMax, Config.FOVRadius, function(v) Config.FOVRadius = v end)
+    -- Controls
+    GUI.Toggle(content, "Enabled", Config.Enabled, function(v) Config.Enabled = v end)
+    GUI.Toggle(content, "Show FOV", Config.ShowFOV, function(v) Config.ShowFOV = v end)
+    GUI.Toggle(content, "Follow Mouse", Config.FollowMouse, function(v) Config.FollowMouse = v end)
+    GUI.Toggle(content, "Team Check", Config.TeamCheck, function(v) Config.TeamCheck = v end)
+    GUI.Toggle(content, "Wall Check", Config.WallCheck, function(v) Config.WallCheck = v end)
     
-    GUIBuilder.CreateSlider(ConfigGroup, "Max Distance", Constants.LIMITS.MaxDistanceMin, 
-        Constants.LIMITS.MaxDistanceMax, Config.MaxDistance, function(v) Config.MaxDistance = v end)
+    GUI.Divider(content)
     
-    GUIBuilder.CreateSlider(ConfigGroup, "Miss Chance %", Constants.LIMITS.MissChanceMin, 
-        Constants.LIMITS.MissChanceMax, Config.MissChance, function(v) Config.MissChance = v end)
+    GUI.Slider(content, "FOV Radius", 10, 800, Config.FOVRadius, function(v) Config.FOVRadius = v end)
+    GUI.Slider(content, "Max Distance", 100, 10000, Config.MaxDistance, function(v) Config.MaxDistance = v end)
+    GUI.Slider(content, "Miss Chance", 0, 100, Config.MissChance, function(v) Config.MissChance = v end)
     
-    local RunConnection = RunService.RenderStepped:Connect(function()
-        local OriginPos = GetFOVPosition()
+    -- Main Loop
+    local conn = RunService.RenderStepped:Connect(function()
+        local fovPos = GetFOVPosition()
         
-        if State.FOVRingObj then
-            State.FOVRingObj.Visible = Config.ShowFOV
-            State.FOVRingObj.Size = UDim2.new(0, Config.FOVRadius * 2, 0, Config.FOVRadius * 2)
-            State.FOVRingObj.Position = UDim2.new(0, OriginPos.X, 0, OriginPos.Y)
+        if State.FOVRing then
+            State.FOVRing.Visible = Config.ShowFOV
+            State.FOVRing.Size = UDim2.new(0, Config.FOVRadius * 2, 0, Config.FOVRadius * 2)
+            State.FOVRing.Position = UDim2.new(0, fovPos.X, 0, fovPos.Y)
         end
         
         if Config.Enabled then
-            local target = GetClosestPlayerToCursor()
-            Highlight.Update(target)
+            UpdateHighlight(GetClosestTarget())
         else
-            Highlight.Update(nil)
+            UpdateHighlight(nil)
         end
     end)
-    AddConnection("MainLoop", RunConnection)
+    State.Connections.MainLoop = conn
     
+    -- Setup Hooks
     SetupHooks()
 end
 
+-- Run
 Initialize()
